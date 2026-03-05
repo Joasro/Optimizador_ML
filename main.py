@@ -7,6 +7,28 @@ from config.db_connection import get_connection
 def hash_data(data):
     return hashlib.sha256(str(data).encode()).hexdigest()
 
+def evaluar_prerrequisitos_simulador(req_text, nombre_clase, ids_aprobados, total_uv, mapa_codes):
+    """Evalúa estrictamente si el estudiante virtual puede llevar una materia."""
+    req_lower = str(req_text).lower() if req_text else ""
+    nombre_lower = str(nombre_clase).lower()
+    
+    # Candado de Seminario (140 UV)
+    if "seminario" in nombre_lower or "140" in req_lower:
+        if total_uv < 140:
+            return False
+            
+    if req_lower in ['ninguno', 'nan', 'null', '']:
+        return True
+        
+    clases_requeridas = [r.strip().upper() for r in req_text.split(',') if "140" not in r]
+    
+    for code in clases_requeridas:
+        req_id = mapa_codes.get(code)
+        if req_id and req_id not in ids_aprobados:
+            return False 
+            
+    return True
+
 def ejecutar():
     conn = get_connection()
     if not conn:
@@ -15,117 +37,110 @@ def ejecutar():
     
     cursor = conn.cursor(dictionary=True)
     
-    print("🧹 Limpiando datos anteriores...")
+    print("🧹 Limpiando base de datos (protegiendo cuentas de Admin)...")
     cursor.execute("SET FOREIGN_KEY_CHECKS = 0;")
     cursor.execute("TRUNCATE TABLE Historial_Academico;")
-    cursor.execute("TRUNCATE TABLE Usuarios;")
+    cursor.execute("TRUNCATE TABLE Estudiantes;")
+    cursor.execute("DELETE FROM Usuarios WHERE Rol = 'Estudiante';")
     cursor.execute("SET FOREIGN_KEY_CHECKS = 1;")
 
-    # 1. Cargar Malla Curricular
-    print("📖 Cargando Malla Curricular...")
+    print("📖 Analizando Malla Curricular...")
     cursor.execute("""
         SELECT ID_Clase, Codigo_Oficial, Nombre_Clase, Unidades_Valorativas, 
                Plan_Perteneciente, Prerrequisitos 
         FROM Malla_Curricular
     """)
     malla = cursor.fetchall()
-    
-    # Mapa para encontrar el ID_Clase a partir del código (ej: 'MM-110' -> 1)
-    mapa_codes = {c['Codigo_Oficial'].strip().upper(): c['ID_Clase'] for c in malla}
 
-    # 2. Perfiles para los 67 estudiantes
     perfiles = [
-        {'plan': '2024', 'n': 15, 'objetivo_clases': (5, 12),  'inicio': 2024},
-        {'plan': '2024', 'n': 15, 'objetivo_clases': (15, 25), 'inicio': 2023},
-        {'plan': '2021', 'n': 27, 'objetivo_clases': (30, 45), 'inicio': 2021},
-        {'plan': '2021', 'n': 10, 'objetivo_clases': (48, 53), 'inicio': 2019} 
+        {'plan': '2024', 'n': 10, 'inicio': 2025},
+        {'plan': '2024', 'n': 15, 'inicio': 2024},
+        {'plan': '2024', 'n': 10, 'inicio': 2023},
+        {'plan': '2021', 'n': 17, 'inicio': 2022},
+        {'plan': '2021', 'n': 15, 'inicio': 2021} 
     ]
 
-    print("🚀 Generando trayectorias académicas realistas...")
-    pass_hash = hash_data('unah123')
+    print("🚀 Simulando trayectorias académicas con prioridad en clases IS...")
+    
+    pass_hash = hash_data('admin123') 
     est_idx = 1
 
     for p in perfiles:
         clases_del_plan = [c for c in malla if c['Plan_Perteneciente'] == p['plan']]
         
+        mapa_codes = {c['Codigo_Oficial'].strip().upper(): c['ID_Clase'] for c in clases_del_plan}
+        
         for _ in range(p['n']):
-            target = random.randint(p['objetivo_clases'][0], p['objetivo_clases'][1])
-            cuenta_hash = hash_data(20201000000 + est_idx)
+            num_cuenta = (p['inicio'] * 100000) + est_idx
+            correo_est = f"estudiante{num_cuenta}@unah.hn"
+            nombre_est = f"Estudiante {est_idx}"
+            cuenta_hash = hash_data(correo_est) 
             
             cursor.execute("""
-                INSERT INTO Usuarios (Hash_Cuenta, Correo_Institucional, Rol, Plan_Estudio_Inferido, Nombre_Completo, Contrasena, Ano_Ingreso) 
-                VALUES (%s, %s, %s, %s, %s, %s, %s)
-            """, (cuenta_hash, f"estudiante{est_idx}@unah.hn", 'Estudiante', p['plan'], f"Estudiante {est_idx}", pass_hash, p['inicio']))
+                INSERT INTO Usuarios (Hash_Cuenta, Nombre_Completo, Correo_Institucional, Contrasena, Rol) 
+                VALUES (%s, %s, %s, %s, 'Estudiante')
+            """, (cuenta_hash, nombre_est, correo_est, pass_hash))
             
-            clases_aprobadas = set() # Guardamos IDs de clases aprobadas
+            cursor.execute("""
+                INSERT INTO Estudiantes (Hash_Cuenta, Plan_Estudio, Ano_Ingreso) 
+                VALUES (%s, %s, %s)
+            """, (cuenta_hash, p['plan'], p['inicio']))
+            
+            clases_aprobadas = set() 
             total_uv_acumuladas = 0
-            total_cursadas = 0
             ano_sim = p['inicio']
             periodo_sim = 1
             
-            while total_cursadas < target:
+            while ano_sim < 2026 or (ano_sim == 2026 and periodo_sim <= 1):
                 disponibles = []
                 
                 for c in clases_del_plan:
-                    if c['ID_Clase'] in clases_aprobadas: continue
-                    
-                    req_text = str(c['Prerrequisitos']).lower() if c['Prerrequisitos'] else ""
-                    cumple = True
-                    
-                    # CASO A: Bloqueo por Unidades Valorativas (Seminario)
-                    if "140 uv" in req_text:
-                        if total_uv_acumuladas < 140:
-                            cumple = False
-                    
-                    # CASO B: Bloqueo por materias previas (Cálculo, etc)
-                    elif req_text and req_text != 'ninguno' and req_text != 'nan':
-                        # Separamos por coma y limpiamos espacios (ej: "MM-110, MM-111" -> ["MM-110", "MM-111"])
-                        codigos_requisito = [r.strip().upper() for r in req_text.split(',')]
-                        for r_code in codigos_requisito:
-                            id_req = mapa_codes.get(r_code)
-                            # Si el requisito existe en la malla pero no está aprobado, no puede llevar la clase
-                            if id_req and id_req not in clases_aprobadas:
-                                cumple = False
-                                break
-                    
-                    if cumple: disponibles.append(c)
+                    if c['ID_Clase'] not in clases_aprobadas:
+                        if evaluar_prerrequisitos_simulador(c['Prerrequisitos'], c['Nombre_Clase'], clases_aprobadas, total_uv_acumuladas, mapa_codes):
+                            disponibles.append(c)
                 
-                if not disponibles: break
+                if not disponibles: 
+                    break
                 
-                # --- MATRICULACIÓN DEL PERÍODO ---
-                random.shuffle(disponibles)
+                # --- SISTEMA DE PRIORIDAD DE MATRÍCULA ---
+                is_clases = [c for c in disponibles if c['Codigo_Oficial'].upper().startswith('IS')]
+                mm_fs_clases = [c for c in disponibles if c['Codigo_Oficial'].upper().startswith(('MM', 'FS'))]
+                otras_clases = [c for c in disponibles if not c['Codigo_Oficial'].upper().startswith(('IS', 'MM', 'FS'))]
+                
+                # Se baraja dentro de cada grupo para dar un toque de aleatoriedad realista
+                random.shuffle(is_clases)
+                random.shuffle(mm_fs_clases)
+                random.shuffle(otras_clases)
+                
+                # Se concatenan en orden de importancia
+                disponibles_priorizados = is_clases + mm_fs_clases + otras_clases
+                
                 carga_periodo = []
                 uv_periodo = 0
+                max_clases_periodo = random.randint(3, 4)
                 
-                for d in disponibles:
-                    # REGLA: Máximo 25 UV por período
-                    if uv_periodo + d['Unidades_Valorativas'] <= 25:
+                for d in disponibles_priorizados:
+                    if uv_periodo + d['Unidades_Valorativas'] <= 18:
                         carga_periodo.append(d)
                         uv_periodo += d['Unidades_Valorativas']
-                    
-                    # Máximo 6 clases por periodo (opcional, para realismo)
-                    if len(carga_periodo) >= 6: break
+                    if len(carga_periodo) >= max_clases_periodo: 
+                        break
                 
-                if not carga_periodo: break
-                
-                periodo_str = f"{periodo_sim}-{ano_sim}"
-                for c in carga_periodo:
-                    # Simulación de éxito: 88% aprueba, 12% reprueba
-                    exito = random.random() < 0.88
-                    estado = 'Aprobado' if exito else 'Reprobado'
-                    
-                    cursor.execute("""
-                        INSERT INTO Historial_Academico (Hash_Cuenta, ID_Clase, Estado, Periodo_Cursado) 
-                        VALUES (%s, %s, %s, %s)
-                    """, (cuenta_hash, c['ID_Clase'], estado, periodo_str))
-                    
-                    if estado == 'Aprobado':
-                        clases_aprobadas.add(c['ID_Clase'])
-                        total_uv_acumuladas += c['Unidades_Valorativas']
-                    
-                    total_cursadas += 1
+                if carga_periodo:
+                    periodo_str = f"{periodo_sim}-{ano_sim}"
+                    for c in carga_periodo:
+                        exito = random.random() < 0.82
+                        estado = 'Aprobado' if exito else 'Reprobado'
+                        
+                        cursor.execute("""
+                            INSERT INTO Historial_Academico (Hash_Cuenta, ID_Clase, Estado, Periodo_Cursado) 
+                            VALUES (%s, %s, %s, %s)
+                        """, (cuenta_hash, c['ID_Clase'], estado, periodo_str))
+                        
+                        if estado == 'Aprobado':
+                            clases_aprobadas.add(c['ID_Clase'])
+                            total_uv_acumuladas += c['Unidades_Valorativas']
 
-                # Avanzar tiempo académico
                 periodo_sim += 1
                 if periodo_sim > 3:
                     periodo_sim = 1
@@ -135,7 +150,7 @@ def ejecutar():
 
     conn.commit()
     conn.close()
-    print("✅ ¡Éxito! 67 trayectorias generadas respetando Prerrequisitos y el límite de 25 UV.")
+    print("✅ Generación completada. Historiales realistas construidos con prioridad en IS.")
 
 if __name__ == '__main__':
     ejecutar()

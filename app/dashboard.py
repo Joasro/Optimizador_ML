@@ -7,32 +7,37 @@ import streamlit as st
 import hashlib
 import pandas as pd
 from config.db_connection import get_connection
-# ... el resto de tu código sigue igual ...
 
-# Configuración inicial de la página
-st.set_page_config(page_title="Optimizador Académico UNAH", page_icon="🎓", layout="wide")
+st.set_page_config(page_title="Optimizador Académico UNAH", layout="wide", page_icon="🎓")
 
 # ==========================================
-# 1. FUNCIONES AUXILIARES Y LÓGICA
+# 1. FUNCIONES AUXILIARES
 # ==========================================
 def hash_data(data):
     return hashlib.sha256(str(data).encode()).hexdigest()
 
+def sugerir_siguiente_periodo(ultimo_periodo, ano_ingreso):
+    if not ultimo_periodo:
+        return f"1-{ano_ingreso}"
+    try:
+        p, a = map(int, ultimo_periodo.split('-'))
+        if p >= 3:
+            return f"1-{a + 1}"
+        else:
+            return f"{p + 1}-{a}"
+    except:
+        return f"1-{ano_ingreso}"
+
 def evaluar_prerrequisitos(req_text, ids_aprobados, total_uv, mapa_codes):
-    """Evalúa si el estudiante cumple los requisitos para cursar una materia."""
     if not req_text or str(req_text).lower() in ['ninguno', 'nan', 'null', '']:
         return True
-    
-    # Regla de Seminario de Investigación (140 UV)
     if "140 uv" in str(req_text).lower():
         return total_uv >= 140
-        
-    # Regla de códigos (ej: MM-110, MM-111)
     req_codes = [r.strip().upper() for r in str(req_text).split(',')]
     for code in req_codes:
         req_id = mapa_codes.get(code)
         if req_id and req_id not in ids_aprobados:
-            return False # Faltan requisitos
+            return False
     return True
 
 # ==========================================
@@ -50,208 +55,272 @@ def cerrar_sesion():
         del st.session_state[key]
     st.rerun()
 
-def pantalla_login():
-    st.title("🎓 Acceso al Sistema - Optimizador UNAH")
-    
-    with st.container():
-        st.write("---")
-        col1, col2, col3 = st.columns([1, 2, 1])
-        with col2:
-            st.subheader("Iniciar Sesión")
-            with st.form("login_form"):
-                correo = st.text_input("Correo Institucional")
-                password = st.text_input("Contraseña", type="password")
-                submit = st.form_submit_button("Ingresar", use_container_width=True)
-                
-                if submit:
-                    if not correo or not password:
-                        st.warning("Por favor ingresa todos los datos.")
-                        return
-                        
-                    conn = get_connection()
-                    cursor = conn.cursor(dictionary=True)
-                    
-                    pass_hash = hash_data(password)
-                    cursor.execute("""
-                        SELECT Hash_Cuenta, Nombre_Completo, Rol 
-                        FROM Usuarios 
-                        WHERE Correo_Institucional = %s AND Contrasena = %s
-                    """, (correo, pass_hash))
-                    
-                    usuario = cursor.fetchone()
-                    conn.close()
-                    
-                    if usuario:
-                        st.session_state['logged_in'] = True
-                        st.session_state['user_role'] = usuario['Rol']
-                        st.session_state['user_name'] = usuario['Nombre_Completo']
-                        st.session_state['user_hash'] = usuario['Hash_Cuenta']
-                        st.success("¡Acceso concedido!")
-                        st.rerun()
-                    else:
-                        st.error("❌ Correo o contraseña incorrectos.")
-
 # ==========================================
-# 3. PANEL DE ADMINISTRADOR (CREADOR)
+# 3. VISTA: JEFE DE DEPARTAMENTO (ADMIN)
 # ==========================================
-def panel_administrador():
+def vista_jefe_departamento():
     st.sidebar.title(f"👨‍💻 Admin: {st.session_state['user_name']}")
     if st.sidebar.button("Cerrar Sesión", use_container_width=True):
         cerrar_sesion()
         
-    st.title("🛡️ Constructor de Trayectorias Académicas")
-    st.info("Crea perfiles de estudiantes y construye su historial periodo a periodo para entrenar el modelo de IA.")
+    st.title("🛡️ Panel de Control - Jefe de Departamento")
+    
+    tab1, tab2, tab3 = st.tabs(["🆕 Registrar Estudiante", "📝 Matricular Periodo", "✏️ Editar / Corregir Historial"])
 
-    # --- FASE A: REGISTRO DEL ESTUDIANTE ---
-    with st.expander("➕ 1. Registrar Nuevo Estudiante", expanded=True):
+    # --- TAB 1: CREAR ESTUDIANTE ---
+    with tab1:
+        st.subheader("Crear Perfil de Nuevo Ingreso")
         with st.form("form_nuevo_estudiante"):
+            nombre = st.text_input("Nombre Completo")
             col1, col2 = st.columns(2)
-            nombre = col1.text_input("Nombre Completo")
-            ano_ingreso = col2.number_input("Año de Ingreso", 2015, 2026, 2024)
+            correo_est = col1.text_input("Correo Institucional")
+            pass_est = col2.text_input("Contraseña Temporal", type="password")
             
-            # Mostrar inferencia de plan
-            if ano_ingreso >= 2024:
-                st.info("Plan asignado automáticamente: **2024**")
-                plan_estudio = "2024"
-            elif ano_ingreso <= 2022:
-                st.info("Plan asignado automáticamente: **2021**")
-                plan_estudio = "2021"
+            ano_ing = st.number_input("Año de Ingreso", 2015, 2030, 2024)
+            
+            if ano_ing >= 2024:
+                st.info("Ingreso 2024 o superior: Se asigna Plan 2024 automáticamente.")
+                plan_final = "2024"
             else:
-                plan_estudio = st.radio("Año de transición detectado. Selecciona el plan:", ["2021", "2024"], horizontal=True)
+                plan_final = st.radio("¿Con qué plan inicia su registro?", ["2021", "2024"])
 
-            if st.form_submit_button("Crear Estudiante y Construir Historial"):
-                    if not nombre:
-                        st.warning("El nombre es obligatorio.")
-                    else:
-                        conn = get_connection()
-                        cursor = conn.cursor()
-                        # Generar cuenta lógica
-                        cursor.execute("SELECT COUNT(*) FROM Estudiantes WHERE Ano_Ingreso = %s", (ano_ingreso,))
-                        secuencia = cursor.fetchone()[0] + 1
-                        num_cuenta = (ano_ingreso * 10000000) + secuencia
-                        h_cuenta = hash_data(num_cuenta)
-                        correo = f"estudiante{num_cuenta}@unah.hn"
-                        pass_default = hash_data("unah123")
+            if st.form_submit_button("Guardar Estudiante"):
+                if not (nombre and correo_est and pass_est):
+                    st.error("Faltan datos obligatorios.")
+                else:
+                    conn = get_connection()
+                    cursor = conn.cursor()
+                    try:
+                        cursor.execute("INSERT INTO Usuarios (Hash_Cuenta, Nombre_Completo, Correo_Institucional, Contrasena, Rol) VALUES (%s, %s, %s, %s, 'Estudiante')", 
+                                       (hash_data(correo_est), nombre, correo_est, hash_data(pass_est)))
+                        cursor.execute("INSERT INTO Estudiantes (Hash_Cuenta, Plan_Estudio, Ano_Ingreso) VALUES (%s, %s, %s)", 
+                                       (hash_data(correo_est), plan_final, ano_ing))
+                        conn.commit()
+                        st.success(f"✅ Estudiante {nombre} registrado exitosamente.")
+                    except Exception as e:
+                        st.error(f"Error al registrar: {e}")
+                    finally:
+                        conn.close()
 
-                        # --- NUEVA LÓGICA ANTI-DUPLICADOS ---
-                        cursor.execute("SELECT 1 FROM Usuarios WHERE Correo_Institucional = %s", (correo,))
-                        if cursor.fetchone():
-                            st.error(f"❌ El correo '{correo}' ya está registrado en el sistema.")
-                            conn.close()
-                        else:
-                            try:
-                                cursor.execute("INSERT INTO Usuarios (Hash_Cuenta, Nombre_Completo, Correo_Institucional, Contrasena, Rol) VALUES (%s, %s, %s, %s, 'Estudiante')", 
-                                               (h_cuenta, nombre, correo, pass_default))
-                                cursor.execute("INSERT INTO Estudiantes (Hash_Cuenta, Plan_Estudio, Ano_Ingreso) VALUES (%s, %s, %s)", 
-                                               (h_cuenta, plan_estudio, ano_ingreso))
-                                conn.commit()
-                                st.session_state['active_student'] = h_cuenta
-                                st.session_state['active_plan'] = plan_estudio
-                                st.session_state['active_name'] = nombre
-                                st.success(f"✅ Estudiante {num_cuenta} creado exitosamente.")
-                                st.rerun()
-                            except Exception as e:
-                                st.error(f"Error en BD: {e}")
-                            finally:
-                                conn.close()
-
-    # --- FASE B: CONSTRUCTOR PERIODO A PERIODO ---
-    if st.session_state.get('active_student'):
-        st.divider()
-        st.subheader(f"📚 Historial de: {st.session_state['active_name']} (Plan {st.session_state['active_plan']})")
-        
+    # --- TAB 2: GESTIONAR HISTORIALES Y PRERREQUISITOS ---
+    with tab2:
+        st.subheader("Agregar Nuevo Periodo")
         conn = get_connection()
-        cursor = conn.cursor(dictionary=True)
+        est_df = pd.read_sql("SELECT u.Hash_Cuenta, u.Nombre_Completo, e.Plan_Estudio, e.Ano_Ingreso FROM Usuarios u JOIN Estudiantes e ON u.Hash_Cuenta = e.Hash_Cuenta", conn)
         
-        # 1. Obtener historial actual
-        cursor.execute("""
-            SELECT h.ID_Clase, h.Estado, m.Unidades_Valorativas, h.Periodo_Cursado, m.Nombre_Clase, m.Codigo_Oficial 
-            FROM Historial_Academico h
-            JOIN Malla_Curricular m ON h.ID_Clase = m.ID_Clase
-            WHERE h.Hash_Cuenta = %s
-            ORDER BY h.Periodo_Cursado
-        """, (st.session_state['active_student'],))
-        historial = cursor.fetchall()
-        
-        clases_aprobadas_ids = {r['ID_Clase'] for r in historial if r['Estado'] == 'Aprobado'}
-        clases_cursadas_ids = {r['ID_Clase'] for r in historial if r['Estado'] == 'Aprobado'} # No mostrar lo ya pasado
-        total_uv = sum(r['Unidades_Valorativas'] for r in historial if r['Estado'] == 'Aprobado')
-        
-        # Resumen visual
-        col_res1, col_res2 = st.columns(2)
-        col_res1.metric("UV Aprobadas", total_uv)
-        col_res2.metric("Clases Aprobadas", len(clases_aprobadas_ids))
-        
-        if historial:
-            with st.expander("Ver detalle de clases cursadas"):
-                df_historial = pd.DataFrame(historial)
-                st.dataframe(df_historial[['Periodo_Cursado', 'Codigo_Oficial', 'Nombre_Clase', 'Unidades_Valorativas', 'Estado']], use_container_width=True)
-
-        # 2. Obtener clases disponibles
-        cursor.execute("SELECT ID_Clase, Codigo_Oficial, Nombre_Clase, Prerrequisitos FROM Malla_Curricular WHERE Plan_Perteneciente = %s", (st.session_state['active_plan'],))
-        malla = cursor.fetchall()
-        mapa_codes = {c['Codigo_Oficial'].strip().upper(): c['ID_Clase'] for c in malla}
-        
-        clases_disponibles = []
-        for c in malla:
-            if c['ID_Clase'] not in clases_cursadas_ids:
-                if evaluar_prerrequisitos(c['Prerrequisitos'], clases_aprobadas_ids, total_uv, mapa_codes):
-                    clases_disponibles.append(c)
-
-        # 3. Formulario para agregar periodo
-        st.write("---")
-        st.markdown("### 📝 Registrar Nuevo Periodo")
-        with st.form("form_nuevo_periodo"):
-            periodo_input = st.text_input("Identificador del Periodo (Ej: 1-2024)", "1-2024")
+        if est_df.empty:
+            st.warning("No hay estudiantes registrados.")
+        else:
+            sel_est = st.selectbox("Seleccionar Estudiante", options=est_df['Hash_Cuenta'].tolist(),
+                                   format_func=lambda x: est_df[est_df['Hash_Cuenta']==x]['Nombre_Completo'].values[0])
             
-            clases_seleccionadas = st.multiselect(
-                "Clases Disponibles (Prerrequisitos Cumplidos):",
+            info = est_df[est_df['Hash_Cuenta'] == sel_est].iloc[0]
+            
+            col_acc1, col_acc2 = st.columns(2)
+            with col_acc1:
+                st.info(f"**Plan Actual:** {info['Plan_Estudio']}")
+                if info['Plan_Estudio'] == '2021':
+                    if st.button("🔄 Migrar estudiante al Plan 2024"):
+                        cursor = conn.cursor()
+                        cursor.execute("UPDATE Estudiantes SET Plan_Estudio = '2024' WHERE Hash_Cuenta = %s", (sel_est,))
+                        conn.commit()
+                        st.success("¡Plan actualizado!")
+                        st.rerun()
+
+            with col_acc2:
+                with st.expander("⚠️ Eliminar Perfil Completo"):
+                    if st.checkbox(f"Entiendo, quiero eliminar a {info['Nombre_Completo']}"):
+                        if st.button("🗑️ Eliminar Definitivamente", type="primary"):
+                            cursor = conn.cursor()
+                            cursor.execute("DELETE FROM Usuarios WHERE Hash_Cuenta = %s", (sel_est,))
+                            conn.commit()
+                            st.success("Estudiante eliminado.")
+                            st.rerun()
+
+            st.divider()
+            
+            cursor = conn.cursor(dictionary=True)
+            cursor.execute("""
+                SELECT h.ID_Clase, h.Estado, m.Unidades_Valorativas, h.Periodo_Cursado, m.Nombre_Clase, m.Codigo_Oficial 
+                FROM Historial_Academico h
+                JOIN Malla_Curricular m ON h.ID_Clase = m.ID_Clase
+                WHERE h.Hash_Cuenta = %s ORDER BY h.Periodo_Cursado
+            """, (sel_est,))
+            historial = cursor.fetchall()
+            
+            # SOLUCIÓN AQUÍ: Solo filtramos de la lista las que están APROBADAS
+            clases_aprobadas_ids = {r['ID_Clase'] for r in historial if r['Estado'] == 'Aprobado'}
+            total_uv = sum(r['Unidades_Valorativas'] for r in historial if r['Estado'] == 'Aprobado')
+            
+            cursor.execute("SELECT ID_Clase, Codigo_Oficial, Nombre_Clase, Prerrequisitos FROM Malla_Curricular WHERE Plan_Perteneciente = %s", (info['Plan_Estudio'],))
+            malla = cursor.fetchall()
+            mapa_codes = {c['Codigo_Oficial'].strip().upper(): c['ID_Clase'] for c in malla}
+            
+            # Ahora verificamos que no esté en clases_APROBADAS_ids (en lugar de todas las cursadas)
+            clases_disponibles = [c for c in malla if c['ID_Clase'] not in clases_aprobadas_ids and evaluar_prerrequisitos(c['Prerrequisitos'], clases_aprobadas_ids, total_uv, mapa_codes)]
+
+            ultimo_per = historial[-1]['Periodo_Cursado'] if historial else None
+            periodo_reg = st.text_input("Periodo Académico (Ej: 1-2024)", value=sugerir_siguiente_periodo(ultimo_per, info['Ano_Ingreso']))
+            
+            clases_sel = st.multiselect(
+                "Clases Desbloqueadas (Incluye repitencias):", 
                 options=[c['ID_Clase'] for c in clases_disponibles],
                 format_func=lambda x: next(f"{c['Codigo_Oficial']} - {c['Nombre_Clase']}" for c in clases_disponibles if c['ID_Clase'] == x)
             )
             
-            st.write("Estado de las clases seleccionadas:")
-            estados = {}
-            for cid in clases_seleccionadas:
-                nom = next(c['Nombre_Clase'] for c in clases_disponibles if c['ID_Clase'] == cid)
-                estados[cid] = st.radio(nom, ["Aprobado", "Reprobado"], horizontal=True, key=f"estado_{cid}")
+            if clases_sel:
+                st.write("#### Resultados:")
+                resultados = {}
+                for cid in clases_sel:
+                    nom_c = next(c['Nombre_Clase'] for c in clases_disponibles if c['ID_Clase'] == cid)
+                    resultados[cid] = st.radio(f"Estado de {nom_c}:", ["Aprobado", "Reprobado"], horizontal=True, key=f"c_{cid}")
                 
-            col_sub1, col_sub2 = st.columns([1, 4])
-            with col_sub1:
-                submit_periodo = st.form_submit_button("Guardar Periodo", type="primary")
-            
-            if submit_periodo:
-                if not clases_seleccionadas:
-                    st.warning("Debes seleccionar al menos una clase.")
-                else:
-                    for cid in clases_seleccionadas:
-                        cursor.execute("""
-                            INSERT INTO Historial_Academico (Hash_Cuenta, ID_Clase, Estado, Periodo_Cursado)
-                            VALUES (%s, %s, %s, %s)
-                        """, (st.session_state['active_student'], cid, estados[cid], periodo_input))
+                if st.button("Guardar Periodo", type="primary"):
+                    for cid in clases_sel:
+                        cursor.execute("INSERT INTO Historial_Academico (Hash_Cuenta, ID_Clase, Estado, Periodo_Cursado) VALUES (%s, %s, %s, %s)", 
+                                       (sel_est, cid, resultados[cid], periodo_reg))
                     conn.commit()
-                    st.success("Periodo guardado. Actualizando malla...")
+                    st.success("Guardado.")
                     st.rerun()
-                    
-        if st.button("Finalizar con este estudiante (Limpiar pantalla)"):
-            del st.session_state['active_student']
-            del st.session_state['active_plan']
-            del st.session_state['active_name']
-            st.rerun()
+        conn.close()
+
+    # --- TAB 3: EDITAR HISTORIAL (AUTO-LIMPIEZA) ---
+    with tab3:
+        st.subheader("Edición Rápida de Registros")
+        conn = get_connection()
+        est_df_edit = pd.read_sql("""
+            SELECT u.Hash_Cuenta, u.Nombre_Completo, u.Correo_Institucional, e.Ano_Ingreso, e.Plan_Estudio 
+            FROM Usuarios u 
+            JOIN Estudiantes e ON u.Hash_Cuenta = e.Hash_Cuenta 
+            WHERE u.Rol = 'Estudiante'
+        """, conn)
+        
+        if not est_df_edit.empty:
+            sel_est_edit = st.selectbox("Seleccionar Alumno a Editar", options=est_df_edit['Hash_Cuenta'].tolist(),
+                                        format_func=lambda x: est_df_edit[est_df_edit['Hash_Cuenta']==x]['Nombre_Completo'].values[0], key="edit_sel")
             
+            info_edit = est_df_edit[est_df_edit['Hash_Cuenta'] == sel_est_edit].iloc[0]
+            correo = info_edit['Correo_Institucional']
+            num_cuenta = correo.split('@')[0].replace('estudiante', '') if 'estudiante' in correo else 'No definido'
+            
+            st.markdown(f"### 👤 Perfil: {info_edit['Nombre_Completo']}")
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("📌 Número de Cuenta", num_cuenta)
+            c2.metric("🗓️ Año de Ingreso", info_edit['Ano_Ingreso'])
+            c3.metric("📚 Plan de Estudio", info_edit['Plan_Estudio'])
+            c4.markdown(f"**✉️ Correo:**<br>{correo}", unsafe_allow_html=True)
+            
+            st.divider()
+            
+            cursor = conn.cursor(dictionary=True)
+            cursor.execute("""
+                SELECT h.ID_Clase, m.Codigo_Oficial, m.Nombre_Clase, h.Periodo_Cursado, h.Estado 
+                FROM Historial_Academico h
+                JOIN Malla_Curricular m ON h.ID_Clase = m.ID_Clase
+                WHERE h.Hash_Cuenta = %s 
+            """, (sel_est_edit,))
+            hist_edit = cursor.fetchall()
+            
+            if not hist_edit:
+                st.info("Este estudiante no tiene clases en su historial todavía.")
+            else:
+                df_hist = pd.DataFrame(hist_edit)
+                periodos_unicos = df_hist['Periodo_Cursado'].unique()
+                try:
+                    periodos_ordenados = sorted(periodos_unicos, key=lambda x: (int(x.split('-')[1]), int(x.split('-')[0])))
+                except:
+                    periodos_ordenados = periodos_unicos
+                
+                st.write("### 📖 Historial por Periodos")
+                st.caption("💡 **Instrucción:** Haz clic en la columna 'Estado'. Si cambias una clase a 'Aprobado', el sistema borrará automáticamente esa misma clase si el alumno la llevaba repitiendo en periodos futuros.")
+                
+                hubo_cambios = False
+                
+                for periodo in periodos_ordenados:
+                    st.markdown(f"#### 📅 Periodo: `{periodo}`")
+                    df_periodo = df_hist[df_hist['Periodo_Cursado'] == periodo][['ID_Clase', 'Codigo_Oficial', 'Nombre_Clase', 'Estado']]
+                    
+                    edited_df = st.data_editor(
+                        df_periodo,
+                        column_config={
+                            "ID_Clase": None,
+                            "Codigo_Oficial": st.column_config.TextColumn("Código", disabled=True),
+                            "Nombre_Clase": st.column_config.TextColumn("Asignatura", disabled=True),
+                            "Estado": st.column_config.SelectboxColumn(
+                                "Estado (Clic para editar)",
+                                options=["Aprobado", "Reprobado", "🗑️ Eliminar"],
+                                required=True
+                            )
+                        },
+                        disabled=["Codigo_Oficial", "Nombre_Clase"],
+                        hide_index=True,
+                        key=f"editor_{periodo}_{sel_est_edit}",
+                        use_container_width=True
+                    )
+                    
+                    for index, row in edited_df.iterrows():
+                        orig_row = df_periodo[df_periodo['ID_Clase'] == row['ID_Clase']]
+                        if not orig_row.empty:
+                            orig_estado = orig_row.iloc[0]['Estado']
+                            nuevo_estado = row['Estado']
+                            
+                            if orig_estado != nuevo_estado:
+                                if nuevo_estado == "🗑️ Eliminar":
+                                    cursor.execute("DELETE FROM Historial_Academico WHERE Hash_Cuenta = %s AND ID_Clase = %s AND Periodo_Cursado = %s", 
+                                                   (sel_est_edit, row['ID_Clase'], periodo))
+                                else:
+                                    cursor.execute("UPDATE Historial_Academico SET Estado = %s WHERE Hash_Cuenta = %s AND ID_Clase = %s AND Periodo_Cursado = %s", 
+                                                   (nuevo_estado, sel_est_edit, row['ID_Clase'], periodo))
+                                    
+                                    # --- LÓGICA DE AUTO-LIMPIEZA INTELIGENTE ---
+                                    if nuevo_estado == "Aprobado":
+                                        try:
+                                            curr_p, curr_y = map(int, periodo.split('-'))
+                                            
+                                            cursor.execute("SELECT Periodo_Cursado FROM Historial_Academico WHERE Hash_Cuenta = %s AND ID_Clase = %s AND Periodo_Cursado != %s", 
+                                                           (sel_est_edit, row['ID_Clase'], periodo))
+                                            otros_intentos = cursor.fetchall()
+                                            
+                                            for intento in otros_intentos:
+                                                try:
+                                                    int_p, int_y = map(int, intento['Periodo_Cursado'].split('-'))
+                                                    if (int_y > curr_y) or (int_y == curr_y and int_p > curr_p):
+                                                        cursor.execute("DELETE FROM Historial_Academico WHERE Hash_Cuenta = %s AND ID_Clase = %s AND Periodo_Cursado = %s", 
+                                                                       (sel_est_edit, row['ID_Clase'], intento['Periodo_Cursado']))
+                                                except:
+                                                    pass
+                                        except:
+                                            pass
+                                # -------------------------------------------
+                                hubo_cambios = True
+
+                if hubo_cambios:
+                    conn.commit()
+                    st.toast("✅ Base de datos actualizada y optimizada.")
+                    st.rerun()
         conn.close()
 
 # ==========================================
-# 4. PANEL DE ESTUDIANTE (PROXIMAMENTE)
+# 4. VISTA: ESTUDIANTE
 # ==========================================
-def panel_estudiante():
+def vista_estudiante():
     st.sidebar.title(f"🎓 Estudiante: {st.session_state['user_name']}")
     if st.sidebar.button("Cerrar Sesión", use_container_width=True):
         cerrar_sesion()
         
-    st.title("Mi Ruta Académica")
-    st.info("Aquí se integrará el Motor de Grafos y el Recomendador de Machine Learning en las próximas fases.")
-    # (Aquí cargaremos las predicciones de IA luego)
+    st.title("Mi Historial Académico")
+    conn = get_connection()
+    df = pd.read_sql(f"""
+        SELECT h.Periodo_Cursado, m.Codigo_Oficial, m.Nombre_Clase, m.Unidades_Valorativas, h.Estado 
+        FROM Historial_Academico h JOIN Malla_Curricular m ON h.ID_Clase = m.ID_Clase
+        WHERE h.Hash_Cuenta = '{st.session_state['user_hash']}' ORDER BY h.Periodo_Cursado ASC
+    """, conn)
+    
+    if df.empty:
+        st.info("Aún no tienes clases registradas.")
+    else:
+        st.dataframe(df.style.applymap(lambda val: 'color: green' if val == 'Aprobado' else 'color: red; font-weight: bold', subset=['Estado']), use_container_width=True)
+    conn.close()
 
 # ==========================================
 # MAIN APP ROUTING
@@ -260,15 +329,29 @@ def main():
     inicializar_sesion()
     
     if not st.session_state['logged_in']:
-        pantalla_login()
+        st.title("Acceso al Optimizador Académico - UNAH")
+        with st.container():
+            col1, col2, col3 = st.columns([1, 2, 1])
+            with col2:
+                with st.form("login_form"):
+                    u = st.text_input("Correo Institucional")
+                    p = st.text_input("Contraseña", type="password")
+                    if st.form_submit_button("Ingresar", use_container_width=True):
+                        conn = get_connection()
+                        cursor = conn.cursor(dictionary=True)
+                        cursor.execute("SELECT * FROM Usuarios WHERE Correo_Institucional = %s AND Contrasena = %s", (u, hash_data(p)))
+                        res = cursor.fetchone()
+                        if res:
+                            st.session_state.update({'logged_in': True, 'user_role': res['Rol'], 'user_name': res['Nombre_Completo'], 'user_hash': res['Hash_Cuenta']})
+                            st.rerun()
+                        else:
+                            st.error("Credenciales incorrectas.")
+                        conn.close()
     else:
         if st.session_state['user_role'] == 'Admin':
-            panel_administrador()
-        elif st.session_state['user_role'] == 'Estudiante':
-            panel_estudiante()
+            vista_jefe_departamento()
         else:
-            st.error("Rol no reconocido.")
-            cerrar_sesion()
+            vista_estudiante()
 
 if __name__ == "__main__":
     main()
