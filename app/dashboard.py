@@ -65,7 +65,8 @@ def vista_jefe_departamento():
         
     st.title("🛡️ Panel de Control - Jefe de Departamento")
     
-    tab1, tab2, tab3 = st.tabs(["🆕 Registrar Estudiante", "📝 Matricular Periodo", "✏️ Editar / Corregir Historial"])
+    # Actualización: Se agrega la cuarta pestaña "📊 Estadísticas"
+    tab1, tab2, tab3, tab4 = st.tabs(["🆕 Registrar Estudiante", "📝 Matricular Periodo", "✏️ Editar / Corregir Historial", "📊 Estadísticas"])
 
     # --- TAB 1: CREAR ESTUDIANTE ---
     with tab1:
@@ -148,7 +149,6 @@ def vista_jefe_departamento():
             """, (sel_est,))
             historial = cursor.fetchall()
             
-            # SOLUCIÓN AQUÍ: Solo filtramos de la lista las que están APROBADAS
             clases_aprobadas_ids = {r['ID_Clase'] for r in historial if r['Estado'] == 'Aprobado'}
             total_uv = sum(r['Unidades_Valorativas'] for r in historial if r['Estado'] == 'Aprobado')
             
@@ -156,7 +156,6 @@ def vista_jefe_departamento():
             malla = cursor.fetchall()
             mapa_codes = {c['Codigo_Oficial'].strip().upper(): c['ID_Clase'] for c in malla}
             
-            # Ahora verificamos que no esté en clases_APROBADAS_ids (en lugar de todas las cursadas)
             clases_disponibles = [c for c in malla if c['ID_Clase'] not in clases_aprobadas_ids and evaluar_prerrequisitos(c['Prerrequisitos'], clases_aprobadas_ids, total_uv, mapa_codes)]
 
             ultimo_per = historial[-1]['Periodo_Cursado'] if historial else None
@@ -184,7 +183,7 @@ def vista_jefe_departamento():
                     st.rerun()
         conn.close()
 
-    # --- TAB 3: EDITAR HISTORIAL (AUTO-LIMPIEZA) ---
+    # --- TAB 3: EDITAR HISTORIAL ---
     with tab3:
         st.subheader("Edición Rápida de Registros")
         conn = get_connection()
@@ -232,7 +231,6 @@ def vista_jefe_departamento():
                     periodos_ordenados = periodos_unicos
                 
                 st.write("### 📖 Historial por Periodos")
-                st.caption("💡 **Instrucción:** Haz clic en la columna 'Estado'. Si cambias una clase a 'Aprobado', el sistema borrará automáticamente esa misma clase si el alumno la llevaba repitiendo en periodos futuros.")
                 
                 hubo_cambios = False
                 
@@ -247,7 +245,7 @@ def vista_jefe_departamento():
                             "Codigo_Oficial": st.column_config.TextColumn("Código", disabled=True),
                             "Nombre_Clase": st.column_config.TextColumn("Asignatura", disabled=True),
                             "Estado": st.column_config.SelectboxColumn(
-                                "Estado (Clic para editar)",
+                                "Estado",
                                 options=["Aprobado", "Reprobado", "🗑️ Eliminar"],
                                 required=True
                             )
@@ -271,38 +269,40 @@ def vista_jefe_departamento():
                                 else:
                                     cursor.execute("UPDATE Historial_Academico SET Estado = %s WHERE Hash_Cuenta = %s AND ID_Clase = %s AND Periodo_Cursado = %s", 
                                                    (nuevo_estado, sel_est_edit, row['ID_Clase'], periodo))
-                                    
-                                    # --- LÓGICA DE AUTO-LIMPIEZA INTELIGENTE ---
-                                    if nuevo_estado == "Aprobado":
-                                        try:
-                                            curr_p, curr_y = map(int, periodo.split('-'))
-                                            
-                                            cursor.execute("SELECT Periodo_Cursado FROM Historial_Academico WHERE Hash_Cuenta = %s AND ID_Clase = %s AND Periodo_Cursado != %s", 
-                                                           (sel_est_edit, row['ID_Clase'], periodo))
-                                            otros_intentos = cursor.fetchall()
-                                            
-                                            for intento in otros_intentos:
-                                                try:
-                                                    int_p, int_y = map(int, intento['Periodo_Cursado'].split('-'))
-                                                    if (int_y > curr_y) or (int_y == curr_y and int_p > curr_p):
-                                                        cursor.execute("DELETE FROM Historial_Academico WHERE Hash_Cuenta = %s AND ID_Clase = %s AND Periodo_Cursado = %s", 
-                                                                       (sel_est_edit, row['ID_Clase'], intento['Periodo_Cursado']))
-                                                except:
-                                                    pass
-                                        except:
-                                            pass
-                                # -------------------------------------------
                                 hubo_cambios = True
 
                 if hubo_cambios:
                     conn.commit()
-                    st.toast("✅ Base de datos actualizada y optimizada.")
+                    st.toast("✅ Base de datos actualizada.")
                     st.rerun()
         conn.close()
 
-# ==========================================
-# 4. VISTA: ESTUDIANTE
-# ==========================================
+    # --- TAB 4: ESTADÍSTICAS ---
+    with tab4:
+        st.subheader("Resumen de Estudiantes por Plan de Estudio")
+        conn = get_connection()
+        try:
+            # Consulta para contar estudiantes agrupados por su plan
+            stats_df = pd.read_sql("SELECT Plan_Estudio, COUNT(*) as Total FROM Estudiantes GROUP BY Plan_Estudio", conn)
+            
+            if stats_df.empty:
+                st.info("No hay datos de estudiantes para mostrar.")
+            else:
+                # Mostrar métricas en columnas
+                col_m1, col_m2 = st.columns(2)
+                for i, row in stats_df.iterrows():
+                    with (col_m1 if i % 2 == 0 else col_m2):
+                        st.metric(label=f"Plan {row['Plan_Estudio']}", value=f"{row['Total']} Estudiantes")
+                
+                st.divider()
+                st.write("### Distribución por Plan")
+                # Gráfico de barras para comparar los planes
+                st.bar_chart(stats_df.set_index('Plan_Estudio'))
+        except Exception as e:
+            st.error(f"Error al cargar las estadísticas: {e}")
+        finally:
+            conn.close()
+
 # ==========================================
 # 4. VISTA: ESTUDIANTE
 # ==========================================
@@ -324,58 +324,33 @@ def vista_estudiante():
     if df.empty:
         st.info("Aún no tienes clases registradas.")
     else:
-        # --- DESCARGA GLOBAL ---
         col_header1, col_header2 = st.columns([3, 1])
         with col_header1:
             uv_totales = df[df['Estado'] == 'Aprobado']['Unidades_Valorativas'].sum()
             st.metric("Total de Unidades Valorativas Aprobadas", int(uv_totales))
         with col_header2:
             csv_completo = df.to_csv(index=False).encode('utf-8')
-            st.download_button(
-                label="📥 Descargar Historial Completo",
-                data=csv_completo,
-                file_name="mi_historial_completo.csv",
-                mime="text/csv",
-                type="primary",
-                use_container_width=True
-            )
+            st.download_button(label="📥 Descargar Historial Completo", data=csv_completo, file_name="mi_historial.csv", mime="text/csv", type="primary", use_container_width=True)
             
         st.divider()
 
-        # --- ORDENAMIENTO CRONOLÓGICO ---
         periodos_unicos = df['Periodo_Cursado'].unique()
         try:
             periodos_ordenados = sorted(periodos_unicos, key=lambda x: (int(x.split('-')[1]), int(x.split('-')[0])))
         except:
             periodos_ordenados = periodos_unicos
         
-        # --- RENDERIZADO POR BLOQUES ---
         for periodo in periodos_ordenados:
             st.markdown(f"### 📅 Periodo Académico: `{periodo}`")
-            
-            # Filtramos las clases de este periodo
             df_periodo = df[df['Periodo_Cursado'] == periodo][['Codigo_Oficial', 'Nombre_Clase', 'Unidades_Valorativas', 'Estado']]
-            
-            # Arreglamos el índice para que empiece en 1 en lugar de 0
             df_periodo.index = range(1, len(df_periodo) + 1)
             
-            # Coloreado del estado
             def color_estado(val):
                 return 'color: green' if val == 'Aprobado' else 'color: red; font-weight: bold'
             
-            # Mostramos la tabla formateada
             st.dataframe(df_periodo.style.applymap(color_estado, subset=['Estado']), use_container_width=True)
-            
-            # Botón de descarga individual debajo de cada tabla
-            csv_periodo = df_periodo.to_csv(index=False).encode('utf-8')
-            st.download_button(
-                label=f"⬇️ Descargar CSV del Periodo {periodo}",
-                data=csv_periodo,
-                file_name=f"historial_{periodo}.csv",
-                mime="text/csv",
-                key=f"dl_{periodo}" # Key única obligatoria en Streamlit
-            )
-            st.write("---") # Pequeño separador visual entre bloques
+            st.write("---")
+
 # ==========================================
 # MAIN APP ROUTING
 # ==========================================
