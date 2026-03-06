@@ -100,8 +100,8 @@ def ejecutar():
         {'plan': '2021', 'n': 10, 'inicio': 2025},
         {'plan': '2021', 'n': 15, 'inicio': 2024},
         {'plan': '2021', 'n': 10, 'inicio': 2023},
-        {'plan': '2021', 'n': 17, 'inicio': 2022},
-        {'plan': '2021', 'n': 15, 'inicio': 2021} 
+        {'plan': '2021', 'n': 18, 'inicio': 2022},
+        {'plan': '2021', 'n': 17, 'inicio': 2021} 
     ]
 
     print("🚀 Simulando trayectorias académicas hasta el actual IPAC 2026...")
