@@ -87,10 +87,10 @@ def vista_jefe_departamento():
         pass_est = col2.text_input("Contraseña Temporal", type="password")
         ano_ing = st.number_input("Año de Ingreso", 2015, 2030, 2024)
         if ano_ing >= 2024:
-            st.info("Ingreso 2024 o superior: Se asigna Plan 2024 automáticamente.")
-            plan_final = "2024"
+            st.info("💡 Ingreso 2024 o superior: Se asigna Plan 2025 automáticamente.")
+            plan_final = "2025" 
         else:
-            plan_final = st.radio("¿Con qué plan inicia su registro?", ["2021", "2024"])
+            plan_final = st.radio("¿Con qué plan inicia su registro?", ["2021", "2025"])
         if st.form("form_nuevo_estudiante").form_submit_button("Guardar Estudiante"):
             if not (nombre and correo_est and pass_est):
                 st.error("Faltan datos obligatorios.")
