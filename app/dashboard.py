@@ -78,34 +78,132 @@ def vista_jefe_departamento():
         "👨‍🏫 Gestión de Docentes" # Esta es tab5
     ])
 
+    # Inicializar memoria temporal para el historial si no existe
+    # Inicializar memoria temporal para el historial si no existe
+    if 'historial_temporal' not in st.session_state:
+        st.session_state['historial_temporal'] = []
+
     # --- TAB 1: CREAR ESTUDIANTE ---
     with tab1:
-        # ...existing code...
+        st.subheader("Paso 1: Datos Básicos del Estudiante")
+        
         nombre = st.text_input("Nombre Completo")
         col1, col2 = st.columns(2)
         correo_est = col1.text_input("Correo Institucional")
         pass_est = col2.text_input("Contraseña Temporal", type="password")
+        
         ano_ing = st.number_input("Año de Ingreso", 2015, 2030, 2024)
-        if ano_ing >= 2024:
-            st.info("💡 Ingreso 2024 o superior: Se asigna Plan 2025 automáticamente.")
-            plan_final = "2025" 
+        
+        if ano_ing < 2026:
+            st.info("💡 Ingreso anterior a 2026: Cursó históricamente clases del **Plan 2021**.")
+            plan_historial = "2021"
+            plan_actual = st.radio("¿A qué plan transicionará a partir de 2026?", ["2021", "2025"], index=1)
         else:
-            plan_final = st.radio("¿Con qué plan inicia su registro?", ["2021", "2025"])
-        if st.form("form_nuevo_estudiante").form_submit_button("Guardar Estudiante"):
+            st.info("💡 Ingreso 2026 o superior: Pertenece 100% al **Plan 2025**.")
+            plan_historial = "2025"
+            plan_actual = "2025"
+            
+        st.divider()
+        
+        # --- NUEVO: CONSTRUCTOR CLASE POR CLASE ---
+        st.subheader("Paso 2: Registro Detallado (Clase a Clase)")
+        st.write("Construye el historial de forma individual para registrar aprobaciones y reprobaciones exactas.")
+        
+        conn = get_connection()
+        malla_df = pd.read_sql(f"SELECT ID_Clase, Codigo_Oficial, Nombre_Clase FROM Malla_Curricular WHERE Plan_Perteneciente = '{plan_historial}'", conn)
+        conn.close()
+        
+        if not malla_df.empty:
+            opciones_clases = malla_df.to_dict('records')
+            
+            # Usamos 4 columnas para que se vea como una línea de ensamblaje ordenada
+            col_per, col_cla, col_est, col_btn = st.columns([1.5, 3, 1.5, 1])
+            
+            with col_per:
+                periodo_ind = st.text_input("Periodo (Ej: 1-2024)", value=f"1-{ano_ing}")
+            
+            with col_cla:
+                clase_ind = st.selectbox(
+                    "Asignatura",
+                    options=[c['ID_Clase'] for c in opciones_clases],
+                    format_func=lambda x: next(f"{c['Codigo_Oficial']} - {c['Nombre_Clase']}" for c in opciones_clases if c['ID_Clase'] == x)
+                )
+                
+            with col_est:
+                estado_ind = st.selectbox("Estado", ["Aprobado", "Reprobado", "Abandono", "NSP"])
+                
+            with col_btn:
+                st.write("") # Espaciador para alinear el botón con las cajas de texto
+                st.write("")
+                if st.button("➕ Agregar"):
+                    if periodo_ind:
+                        nombre_c = next(c['Nombre_Clase'] for c in opciones_clases if c['ID_Clase'] == clase_ind)
+                        codigo_c = next(c['Codigo_Oficial'] for c in opciones_clases if c['ID_Clase'] == clase_ind)
+                        
+                        # Verificamos si no se ha agregado ya la misma clase en el mismo periodo para evitar errores
+                        duplicado = any(x['ID_Clase'] == clase_ind and x['Periodo'] == periodo_ind for x in st.session_state['historial_temporal'])
+                        
+                        if duplicado:
+                            st.warning("⚠️ Ya agregaste esta clase en este mismo periodo.")
+                        else:
+                            st.session_state['historial_temporal'].append({
+                                'ID_Clase': clase_ind,
+                                'Codigo': codigo_c,
+                                'Clase': nombre_c,
+                                'Periodo': periodo_ind,
+                                'Estado': estado_ind
+                            })
+                            st.rerun() # Refresca para mostrar la tabla actualizada
+                    else:
+                        st.warning("⚠️ Debes escribir un Periodo.")
+
+        # --- MOSTRAR EL HISTORIAL CONSTRUIDO ---
+        if st.session_state['historial_temporal']:
+            st.write("### 📋 Historial a Guardar:")
+            df_historial_temp = pd.DataFrame(st.session_state['historial_temporal'])
+            
+            # Mostramos la tabla ordenadita
+            st.dataframe(df_historial_temp[['Periodo', 'Codigo', 'Clase', 'Estado']], use_container_width=True)
+            
+            if st.button("🗑️ Limpiar Historial Temporal"):
+                st.session_state['historial_temporal'] = []
+                st.rerun()
+
+        st.divider()
+        
+        # --- GUARDAR EN LA BASE DE DATOS ---
+        if st.button("💾 Guardar Estudiante e Historial Definitivo", type="primary", use_container_width=True):
             if not (nombre and correo_est and pass_est):
-                st.error("Faltan datos obligatorios.")
+                st.error("⚠️ Faltan datos obligatorios (Nombre, Correo o Contraseña).")
+            elif not st.session_state['historial_temporal']:
+                st.error("⚠️ El historial está vacío. Agrega al menos una clase antes de guardar.")
             else:
                 conn = get_connection()
                 cursor = conn.cursor()
                 try:
+                    hash_user = hash_data(correo_est)
+                    
+                    # 1. Insertar Usuario
                     cursor.execute("INSERT INTO Usuarios (Hash_Cuenta, Nombre_Completo, Correo_Institucional, Contrasena, Rol) VALUES (%s, %s, %s, %s, 'Estudiante')", 
-                                   (hash_data(correo_est), nombre, correo_est, hash_data(pass_est)))
+                                   (hash_user, nombre, correo_est, hash_data(pass_est)))
+                    
+                    # 2. Insertar Estudiante
                     cursor.execute("INSERT INTO Estudiantes (Hash_Cuenta, Plan_Estudio, Ano_Ingreso) VALUES (%s, %s, %s)", 
-                                   (hash_data(correo_est), plan_final, ano_ing))
+                                   (hash_user, plan_actual, ano_ing))
+                    
+                    # 3. Guardar el historial clase a clase
+                    for registro in st.session_state['historial_temporal']:
+                        cursor.execute("INSERT INTO Historial_Academico (Hash_Cuenta, ID_Clase, Estado, Periodo_Cursado) VALUES (%s, %s, %s, %s)",
+                                       (hash_user, registro['ID_Clase'], registro['Estado'], registro['Periodo']))
+                    
                     conn.commit()
-                    st.success(f"✅ Estudiante {nombre} registrado exitosamente.")
+                    st.success(f"✅ ¡Éxito! Estudiante **{nombre}** guardado con **{len(st.session_state['historial_temporal'])}** registros académicos.")
+                    
+                    # Vaciamos la memoria para el próximo estudiante
+                    st.session_state['historial_temporal'] = [] 
+                    
                 except Exception as e:
-                    st.error(f"Error al registrar: {e}")
+                    st.error(f"❌ Error al registrar en BD: {e}")
                 finally:
                     conn.close()
 
