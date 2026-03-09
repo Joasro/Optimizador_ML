@@ -78,10 +78,19 @@ def vista_jefe_departamento():
         "👨‍🏫 Gestión de Docentes" # Esta es tab5
     ])
 
-    # Inicializar memoria temporal para el historial si no existe
-    # Inicializar memoria temporal para el historial si no existe
+ # Inicializar memoria temporal para el historial si no existe
     if 'historial_temporal' not in st.session_state:
         st.session_state['historial_temporal'] = []
+
+    # --- DICCIONARIO DE EQUIVALENCIAS ---
+    EQUIVALENCIAS = {
+        'ISC-101': ['IS-110', 'MM-314'], 'ISC-102': ['IS-210'], 'ISC-103': ['IS-410'],
+        'ISC-211': ['IS-310'], 'ISC-321': ['IS-501'], 'ISC-422': ['IS-601'],
+        'ISC-341': ['IS-602'], 'ISC-306': ['IS-702'], 'IE-326': ['IS-311', 'IS-510'],
+        'ISC-331': ['IS-511'], 'ISC-332': ['IS-611'], 'ISC-333': ['IS-412'],
+        'ISC-334': ['IS-512'], 'ISC-552': ['IS-115'], 'ISC-408': ['IS-802'],
+        'ISC-414': ['IS-710'], 'ISC-336': ['IS-711'], 'ISC-437': ['IS-603']
+    }
 
     # --- TAB 1: CREAR ESTUDIANTE ---
     with tab1:
@@ -95,9 +104,9 @@ def vista_jefe_departamento():
         ano_ing = st.number_input("Año de Ingreso", 2015, 2030, 2024)
         
         if ano_ing < 2026:
-            st.info("💡 Ingreso anterior a 2026: Cursó históricamente clases del **Plan 2021**.")
-            plan_historial = "2021"
-            plan_actual = st.radio("¿A qué plan transicionará a partir de 2026?", ["2021", "2025"], index=1)
+            st.info("💡 Ingreso anterior a 2026: Construiremos su historial visualizando la malla en la que inició.")
+            plan_historial = st.radio("Mostrar Malla Base:", ["2021", "2025"], index=0, horizontal=True)
+            plan_actual = st.radio("¿A qué plan pertenecerá finalmente (IPAC 2026)?", ["2021", "2025"], index=1, horizontal=True)
         else:
             st.info("💡 Ingreso 2026 o superior: Pertenece 100% al **Plan 2025**.")
             plan_historial = "2025"
@@ -105,67 +114,125 @@ def vista_jefe_departamento():
             
         st.divider()
         
-        # --- NUEVO: CONSTRUCTOR CLASE POR CLASE ---
-        st.subheader("Paso 2: Registro Detallado (Clase a Clase)")
-        st.write("Construye el historial de forma individual para registrar aprobaciones y reprobaciones exactas.")
+        st.subheader("Paso 2: Registro Inteligente de Clases")
+        st.write("Selecciona el periodo, la clase y si la aprobó o reprobó. El sistema filtrará los prerrequisitos en vivo.")
         
         conn = get_connection()
-        malla_df = pd.read_sql(f"SELECT ID_Clase, Codigo_Oficial, Nombre_Clase FROM Malla_Curricular WHERE Plan_Perteneciente = '{plan_historial}'", conn)
+        malla_df = pd.read_sql(f"SELECT ID_Clase, Codigo_Oficial, Nombre_Clase, Prerrequisitos, Unidades_Valorativas FROM Malla_Curricular WHERE Plan_Perteneciente = '{plan_historial}'", conn)
         conn.close()
         
         if not malla_df.empty:
-            opciones_clases = malla_df.to_dict('records')
+            aprobadas_actuales = set()
+            uv_acumuladas = 0
             
-            # Usamos 4 columnas para que se vea como una línea de ensamblaje ordenada
-            col_per, col_cla, col_est, col_btn = st.columns([1.5, 3, 1.5, 1])
+            # Analizar el carrito temporal para ir sumando UV y clases pasadas
+            for reg in st.session_state['historial_temporal']:
+                if reg['Estado'] == 'Aprobado':
+                    aprobadas_actuales.add(reg['Codigo'])
+                    uv_val = malla_df.loc[malla_df['Codigo_Oficial'] == reg['Codigo'], 'Unidades_Valorativas']
+                    if not uv_val.empty:
+                        uv_acumuladas += int(uv_val.values[0])
             
-            with col_per:
-                periodo_ind = st.text_input("Periodo (Ej: 1-2024)", value=f"1-{ano_ing}")
-            
-            with col_cla:
-                clase_ind = st.selectbox(
-                    "Asignatura",
-                    options=[c['ID_Clase'] for c in opciones_clases],
-                    format_func=lambda x: next(f"{c['Codigo_Oficial']} - {c['Nombre_Clase']}" for c in opciones_clases if c['ID_Clase'] == x)
-                )
-                
-            with col_est:
-                estado_ind = st.selectbox("Estado", ["Aprobado", "Reprobado", "Abandono", "NSP"])
-                
-            with col_btn:
-                st.write("") # Espaciador para alinear el botón con las cajas de texto
-                st.write("")
-                if st.button("➕ Agregar"):
-                    if periodo_ind:
-                        nombre_c = next(c['Nombre_Clase'] for c in opciones_clases if c['ID_Clase'] == clase_ind)
-                        codigo_c = next(c['Codigo_Oficial'] for c in opciones_clases if c['ID_Clase'] == clase_ind)
-                        
-                        # Verificamos si no se ha agregado ya la misma clase en el mismo periodo para evitar errores
-                        duplicado = any(x['ID_Clase'] == clase_ind and x['Periodo'] == periodo_ind for x in st.session_state['historial_temporal'])
-                        
-                        if duplicado:
-                            st.warning("⚠️ Ya agregaste esta clase en este mismo periodo.")
-                        else:
-                            st.session_state['historial_temporal'].append({
-                                'ID_Clase': clase_ind,
-                                'Codigo': codigo_c,
-                                'Clase': nombre_c,
-                                'Periodo': periodo_ind,
-                                'Estado': estado_ind
-                            })
-                            st.rerun() # Refresca para mostrar la tabla actualizada
+            # Lógica evaluadora
+            def cumple_prerrequisitos_ui(prereq_str, aprobadas, uv_actuales):
+                if pd.isna(prereq_str) or str(prereq_str).strip().lower() in ['ninguno', 'nan', '']:
+                    return True
+                prereqs = [p.strip() for p in str(prereq_str).split(',')]
+                for p in prereqs:
+                    if 'UV' in p.upper():
+                        import re
+                        nums = re.findall(r'\d+', p)
+                        if nums and uv_actuales < int(nums[0]):
+                            return False 
                     else:
-                        st.warning("⚠️ Debes escribir un Periodo.")
+                        if p in aprobadas: continue 
+                        equiv_fulfilled = False
+                        if p in EQUIVALENCIAS:
+                            if all(old_c in aprobadas for old_c in EQUIVALENCIAS[p]):
+                                equiv_fulfilled = True
+                        if not equiv_fulfilled:
+                            return False 
+                return True
 
-        # --- MOSTRAR EL HISTORIAL CONSTRUIDO ---
+            # Filtrar solo clases desbloqueadas
+            clases_desbloqueadas = []
+            for _, row in malla_df.iterrows():
+                # No mostrar clases ya aprobadas en la lista de opciones
+                if row['Codigo_Oficial'] not in aprobadas_actuales:
+                    if cumple_prerrequisitos_ui(row['Prerrequisitos'], aprobadas_actuales, uv_acumuladas):
+                        clases_desbloqueadas.append(row.to_dict())
+            
+            st.markdown(f"**Métricas Actuales:** ✅ Clases Aprobadas: `{len(aprobadas_actuales)}` | 📈 UV Acumuladas: `{uv_acumuladas}`")
+            
+            if clases_desbloqueadas:
+                with st.container(border=True):
+                    # Interfaz más limpia y ancha para evitar textos cortados
+                    col_per, col_cla, col_est = st.columns([1.5, 3, 1.5])
+                    with col_per:
+                        periodo_ind = st.text_input("Periodo (Ej: 1-2024)", value=f"1-{ano_ing}")
+                    with col_cla:
+                        clase_ind = st.selectbox(
+                            "Asignatura Desbloqueada",
+                            options=[c['ID_Clase'] for c in clases_desbloqueadas],
+                            format_func=lambda x: next(f"{c['Codigo_Oficial']} - {c['Nombre_Clase']}" for c in clases_desbloqueadas if c['ID_Clase'] == x)
+                        )
+                    with col_est:
+                        # 🛑 REDUCIDO A SOLO 2 OPCIONES BINARIAS PARA EL ML
+                        estado_ind = st.selectbox("Estado final", ["Aprobado", "Reprobado"])
+                    
+                    if st.button("➕ Agregar al Historial", type="secondary", use_container_width=True):
+                        if periodo_ind:
+                            nombre_c = next(c['Nombre_Clase'] for c in clases_desbloqueadas if c['ID_Clase'] == clase_ind)
+                            codigo_c = next(c['Codigo_Oficial'] for c in clases_desbloqueadas if c['ID_Clase'] == clase_ind)
+                            
+                            duplicado = any(x['ID_Clase'] == clase_ind and x['Periodo'] == periodo_ind for x in st.session_state['historial_temporal'])
+                            if duplicado:
+                                st.warning("⚠️ Ya agregaste esta clase en este mismo periodo.")
+                            else:
+                                st.session_state['historial_temporal'].append({
+                                    'ID_Clase': clase_ind,
+                                    'Codigo': codigo_c,
+                                    'Clase': nombre_c,
+                                    'Periodo': periodo_ind,
+                                    'Estado': estado_ind
+                                })
+                                st.rerun() 
+                        else:
+                            st.warning("⚠️ Debes escribir un Periodo válido.")
+            else:
+                st.success("🎉 ¡El estudiante ha completado todas las asignaturas mostradas en esta malla!")
+
+        # --- MOSTRAR EL HISTORIAL Y PERMITIR ELIMINAR INDIVIDUALMENTE ---
         if st.session_state['historial_temporal']:
-            st.write("### 📋 Historial a Guardar:")
-            df_historial_temp = pd.DataFrame(st.session_state['historial_temporal'])
+            st.divider()
+            st.subheader("📋 Historial a Guardar")
             
-            # Mostramos la tabla ordenadita
-            st.dataframe(df_historial_temp[['Periodo', 'Codigo', 'Clase', 'Estado']], use_container_width=True)
+            # Usamos columnas para dibujar una tabla interactiva "hecha a mano"
+            col_hp, col_hc, col_hn, col_he, col_hx = st.columns([1.5, 1.5, 3, 1.5, 1])
+            col_hp.markdown("**Periodo**")
+            col_hc.markdown("**Código**")
+            col_hn.markdown("**Asignatura**")
+            col_he.markdown("**Estado**")
+            col_hx.markdown("**Acción**")
             
-            if st.button("🗑️ Limpiar Historial Temporal"):
+            # Dibujamos cada clase registrada con su botón de eliminar
+            for i, reg in enumerate(st.session_state['historial_temporal']):
+                cp, cc, cn, ce, cx = st.columns([1.5, 1.5, 3, 1.5, 1])
+                cp.write(reg['Periodo'])
+                cc.write(reg['Codigo'])
+                cn.write(reg['Clase'])
+                
+                # Le ponemos color para identificar rápido si la pasó o no
+                color = "green" if reg['Estado'] == "Aprobado" else "red"
+                ce.markdown(f":{color}[{reg['Estado']}]")
+                
+                # 🛑 BOTÓN INDIVIDUAL DE ELIMINAR
+                if cx.button("❌", key=f"del_{i}", help="Eliminar esta clase"):
+                    st.session_state['historial_temporal'].pop(i)
+                    st.rerun()
+            
+            st.write("")
+            if st.button("🗑️ Limpiar TODO el historial", type="secondary"):
                 st.session_state['historial_temporal'] = []
                 st.rerun()
 
@@ -173,37 +240,27 @@ def vista_jefe_departamento():
         
         # --- GUARDAR EN LA BASE DE DATOS ---
         if st.button("💾 Guardar Estudiante e Historial Definitivo", type="primary", use_container_width=True):
-            if not (nombre and correo_est and pass_est):
-                st.error("⚠️ Faltan datos obligatorios (Nombre, Correo o Contraseña).")
-            elif not st.session_state['historial_temporal']:
-                st.error("⚠️ El historial está vacío. Agrega al menos una clase antes de guardar.")
+            if not (nombre and correo_est and pass_est) or not st.session_state['historial_temporal']:
+                st.error("⚠️ Faltan datos básicos o el historial está vacío.")
             else:
                 conn = get_connection()
                 cursor = conn.cursor()
                 try:
                     hash_user = hash_data(correo_est)
-                    
-                    # 1. Insertar Usuario
                     cursor.execute("INSERT INTO Usuarios (Hash_Cuenta, Nombre_Completo, Correo_Institucional, Contrasena, Rol) VALUES (%s, %s, %s, %s, 'Estudiante')", 
                                    (hash_user, nombre, correo_est, hash_data(pass_est)))
-                    
-                    # 2. Insertar Estudiante
                     cursor.execute("INSERT INTO Estudiantes (Hash_Cuenta, Plan_Estudio, Ano_Ingreso) VALUES (%s, %s, %s)", 
                                    (hash_user, plan_actual, ano_ing))
                     
-                    # 3. Guardar el historial clase a clase
-                    for registro in st.session_state['historial_temporal']:
+                    for reg in st.session_state['historial_temporal']:
                         cursor.execute("INSERT INTO Historial_Academico (Hash_Cuenta, ID_Clase, Estado, Periodo_Cursado) VALUES (%s, %s, %s, %s)",
-                                       (hash_user, registro['ID_Clase'], registro['Estado'], registro['Periodo']))
+                                       (hash_user, reg['ID_Clase'], reg['Estado'], reg['Periodo']))
                     
                     conn.commit()
-                    st.success(f"✅ ¡Éxito! Estudiante **{nombre}** guardado con **{len(st.session_state['historial_temporal'])}** registros académicos.")
-                    
-                    # Vaciamos la memoria para el próximo estudiante
+                    st.success(f"✅ ¡Éxito! Estudiante guardado correctamente.")
                     st.session_state['historial_temporal'] = [] 
-                    
                 except Exception as e:
-                    st.error(f"❌ Error al registrar en BD: {e}")
+                    st.error(f"❌ Error BD: {e}")
                 finally:
                     conn.close()
 
