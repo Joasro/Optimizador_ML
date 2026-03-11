@@ -264,73 +264,168 @@ def vista_jefe_departamento():
                 finally:
                     conn.close()
 
-    # --- TAB 2: GESTIONAR HISTORIALES Y PRERREQUISITOS ---
+   # --- TAB 2: GESTIÓN DE HISTORIAL ACADÉMICO ---
     with tab2:
-        # ...existing code...
-        st.subheader("Agregar Nuevo Periodo")
+        st.subheader("Paso 3: Matricular Periodo o Actualizar Historial")
+        st.write("Selecciona a un estudiante para añadirle nuevas clases a su historial.")
+        
+        # --- DICCIONARIO DE EQUIVALENCIAS ---
+        EQUIVALENCIAS = {
+            'ISC-101': ['IS-110', 'MM-314'], 'ISC-102': ['IS-210'], 'ISC-103': ['IS-410'],
+            'ISC-211': ['IS-310'], 'ISC-321': ['IS-501'], 'ISC-422': ['IS-601'],
+            'ISC-341': ['IS-602'], 'ISC-306': ['IS-702'], 'IE-326': ['IS-311', 'IS-510'],
+            'ISC-331': ['IS-511'], 'ISC-332': ['IS-611'], 'ISC-333': ['IS-412'],
+            'ISC-334': ['IS-512'], 'ISC-552': ['IS-115'], 'ISC-408': ['IS-802'],
+            'ISC-414': ['IS-710'], 'ISC-336': ['IS-711'], 'ISC-437': ['IS-603']
+        }
+
         conn = get_connection()
-        est_df = pd.read_sql("SELECT u.Hash_Cuenta, u.Nombre_Completo, e.Plan_Estudio, e.Ano_Ingreso FROM Usuarios u JOIN Estudiantes e ON u.Hash_Cuenta = e.Hash_Cuenta", conn)
-        if est_df.empty:
-            st.warning("No hay estudiantes registrados.")
+        estudiantes_df = pd.read_sql("""
+            SELECT u.Hash_Cuenta, u.Nombre_Completo, u.Correo_Institucional, e.Plan_Estudio
+            FROM Usuarios u
+            JOIN Estudiantes e ON u.Hash_Cuenta = e.Hash_Cuenta
+        """, conn)
+        conn.close()
+        
+        if estudiantes_df.empty:
+            st.info("No hay estudiantes registrados en el sistema.")
         else:
-            sel_est = st.selectbox("Seleccionar Estudiante", options=est_df['Hash_Cuenta'].tolist(),
-                                   format_func=lambda x: est_df[est_df['Hash_Cuenta']==x]['Nombre_Completo'].values[0])
-            info = est_df[est_df['Hash_Cuenta'] == sel_est].iloc[0]
-            col_acc1, col_acc2 = st.columns(2)
-            with col_acc1:
-                st.info(f"**Plan Actual:** {info['Plan_Estudio']}")
-                if info['Plan_Estudio'] == '2021':
-                    if st.button("🔄 Migrar estudiante al Plan 2024"):
-                        cursor = conn.cursor()
-                        cursor.execute("UPDATE Estudiantes SET Plan_Estudio = '2024' WHERE Hash_Cuenta = %s", (sel_est,))
-                        conn.commit()
-                        st.success("¡Plan actualizado!")
-                        st.rerun()
-            with col_acc2:
-                with st.expander("⚠️ Eliminar Perfil Completo"):
-                    if st.checkbox(f"Entiendo, quiero eliminar a {info['Nombre_Completo']}"):
-                        if st.button("🗑️ Eliminar Definitivamente", type="primary"):
-                            cursor = conn.cursor()
-                            cursor.execute("DELETE FROM Usuarios WHERE Hash_Cuenta = %s", (sel_est,))
-                            conn.commit()
-                            st.success("Estudiante eliminado.")
-                            st.rerun()
-            st.divider()
-            cursor = conn.cursor(dictionary=True)
-            cursor.execute("""
-                SELECT h.ID_Clase, h.Estado, m.Unidades_Valorativas, h.Periodo_Cursado, m.Nombre_Clase, m.Codigo_Oficial 
+            col1, col2 = st.columns([2, 1])
+            with col1:
+                estudiante_seleccionado = st.selectbox(
+                    "Seleccione un Estudiante",
+                    estudiantes_df['Hash_Cuenta'].tolist(),
+                    format_func=lambda x: estudiantes_df[estudiantes_df['Hash_Cuenta'] == x]['Nombre_Completo'].values[0]
+                )
+            
+            est_info = estudiantes_df[estudiantes_df['Hash_Cuenta'] == estudiante_seleccionado].iloc[0]
+            estudiante_plan = est_info['Plan_Estudio']
+            
+            with col2:
+                st.info(f"🎓 Plan Actual: **{estudiante_plan}**")
+            
+
+           # Obtener historial actual de la BD
+            conn = get_connection()
+            historial_df = pd.read_sql(f"""
+                SELECT h.ID_Registro, h.Estado, h.Periodo_Cursado, m.Codigo_Oficial, m.Nombre_Clase, m.Unidades_Valorativas
                 FROM Historial_Academico h
                 JOIN Malla_Curricular m ON h.ID_Clase = m.ID_Clase
-                WHERE h.Hash_Cuenta = %s ORDER BY h.Periodo_Cursado
-            """, (sel_est,))
-            historial = cursor.fetchall()
-            clases_aprobadas_ids = {r['ID_Clase'] for r in historial if r['Estado'] == 'Aprobado'}
-            total_uv = sum(r['Unidades_Valorativas'] for r in historial if r['Estado'] == 'Aprobado')
-            cursor.execute("SELECT ID_Clase, Codigo_Oficial, Nombre_Clase, Prerrequisitos FROM Malla_Curricular WHERE Plan_Perteneciente = %s", (info['Plan_Estudio'],))
-            malla = cursor.fetchall()
-            mapa_codes = {c['Codigo_Oficial'].strip().upper(): c['ID_Clase'] for c in malla}
-            clases_disponibles = [c for c in malla if c['ID_Clase'] not in clases_aprobadas_ids and evaluar_prerrequisitos(c['Prerrequisitos'], clases_aprobadas_ids, total_uv, mapa_codes)]
-            ultimo_per = historial[-1]['Periodo_Cursado'] if historial else None
-            periodo_reg = st.text_input("Periodo Académico (Ej: 1-2024)", value=sugerir_siguiente_periodo(ultimo_per, info['Ano_Ingreso']))
-            clases_sel = st.multiselect(
-                "Clases Desbloqueadas (Incluye repitencias):", 
-                options=[c['ID_Clase'] for c in clases_disponibles],
-                format_func=lambda x: next(f"{c['Codigo_Oficial']} - {c['Nombre_Clase']}" for c in clases_disponibles if c['ID_Clase'] == x)
-            )
-            if clases_sel:
-                st.write("#### Resultados:")
-                resultados = {}
-                for cid in clases_sel:
-                    nom_c = next(c['Nombre_Clase'] for c in clases_disponibles if c['ID_Clase'] == cid)
-                    resultados[cid] = st.radio(f"Estado de {nom_c}:", ["Aprobado", "Reprobado"], horizontal=True, key=f"c_{cid}")
-                if st.button("Guardar Periodo", type="primary"):
-                    for cid in clases_sel:
-                        cursor.execute("INSERT INTO Historial_Academico (Hash_Cuenta, ID_Clase, Estado, Periodo_Cursado) VALUES (%s, %s, %s, %s)", 
-                                       (sel_est, cid, resultados[cid], periodo_reg))
-                    conn.commit()
-                    st.success("Guardado.")
-                    st.rerun()
-        conn.close()
+                WHERE h.Hash_Cuenta = '{estudiante_seleccionado}'
+            """, conn)
+            
+            malla_df = pd.read_sql(f"SELECT * FROM Malla_Curricular WHERE Plan_Perteneciente = '{estudiante_plan}'", conn)
+            conn.close()
+            
+            # Calcular métricas base
+            aprobadas_set = set(historial_df[historial_df['Estado'] == 'Aprobado']['Codigo_Oficial'].tolist())
+            uv_acumuladas = historial_df[historial_df['Estado'] == 'Aprobado']['Unidades_Valorativas'].fillna(0).astype(int).sum()
+            
+            st.caption(f"📊 **Métricas Actuales del Estudiante:** ✅ Clases Aprobadas: `{len(aprobadas_set)}` | 📈 UV Acumuladas: `{uv_acumuladas}`")
+            
+            # 🛑 LÓGICA CORE: EVALUADOR DE EQUIVALENCIAS Y PRERREQUISITOS
+            def es_clase_aprobada_o_equivalente(codigo_clase, aprobadas):
+                # 1. ¿Pasó el código exacto?
+                if codigo_clase in aprobadas:
+                    return True
+                # 2. ¿Es una clase nueva y pasó sus partes viejas (equivalencias)?
+                if codigo_clase in EQUIVALENCIAS:
+                    if all(old_c in aprobadas for old_c in EQUIVALENCIAS[codigo_clase]):
+                        return True
+                return False
+
+            def cumple_prerrequisitos(prereq_str, aprobadas, uv_actuales):
+                if pd.isna(prereq_str) or str(prereq_str).strip().lower() in ['ninguno', 'nan', '']:
+                    return True
+                prereqs = [p.strip() for p in str(prereq_str).split(',')]
+                for p in prereqs:
+                    if 'UV' in p.upper():
+                        import re
+                        nums = re.findall(r'\d+', p)
+                        if nums and uv_actuales < int(nums[0]):
+                            return False
+                    else:
+                        # Comprobar usando la súper función de equivalencias
+                        if not es_clase_aprobada_o_equivalente(p, aprobadas):
+                            return False
+                return True
+
+            # Filtrar malla para obtener SOLO las desbloqueadas
+            clases_desbloqueadas = []
+            for _, row in malla_df.iterrows():
+                codigo_clase = row['Codigo_Oficial']
+                # 1. Ocultar la clase si ya la pasó (o si ya pasó sus equivalentes del plan viejo)
+                if not es_clase_aprobada_o_equivalente(codigo_clase, aprobadas_set):
+                    # 2. Validar que cumpla los prerrequisitos (también lee equivalencias)
+                    if cumple_prerrequisitos(row['Prerrequisitos'], aprobadas_set, uv_acumuladas):
+                        clases_desbloqueadas.append(row.to_dict())
+            
+            # --- INTERFAZ PARA MATRICULAR NUEVA CLASE ---
+            st.divider()
+            st.markdown("### 📝 Añadir Nueva Asignatura al Historial")
+            
+            if clases_desbloqueadas:
+                with st.container(border=True):
+                    col_p, col_c, col_e = st.columns([1.5, 3, 1.5])
+                    with col_p:
+                        nuevo_periodo = st.text_input("Periodo (Ej: 1-2026)")
+                    with col_c:
+                        nueva_clase_id = st.selectbox(
+                            "Asignaturas Desbloqueadas",
+                            options=[c['ID_Clase'] for c in clases_desbloqueadas],
+                            format_func=lambda x: next(f"{c['Codigo_Oficial']} - {c['Nombre_Clase']}" for c in clases_desbloqueadas if c['ID_Clase'] == x)
+                        )
+                    with col_e:
+                        nuevo_estado = st.selectbox("Estado", ["Aprobado", "Reprobado"])
+                    
+                    if st.button("➕ Guardar en Historial", type="primary", use_container_width=True):
+                        if nuevo_periodo:
+                            conn = get_connection()
+                            cursor = conn.cursor()
+                            try:
+                                cursor.execute("INSERT INTO Historial_Academico (Hash_Cuenta, ID_Clase, Estado, Periodo_Cursado) VALUES (%s, %s, %s, %s)",
+                                            (estudiante_seleccionado, nueva_clase_id, nuevo_estado, nuevo_periodo))
+                                conn.commit()
+                                st.success("✅ Clase agregada al historial exitosamente.")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Error BD: {e}")
+                            finally:
+                                conn.close()
+                        else:
+                            st.warning("⚠️ Debes especificar el Periodo.")
+            else:
+                st.success("🎉 Este estudiante ya completó todas las asignaturas de su plan actual.")
+            
+            # --- MOSTRAR HISTORIAL ACTUAL Y PERMITIR ELIMINAR ---
+            st.divider()
+            st.markdown("### 📋 Historial Académico Registrado en BD")
+            if not historial_df.empty:
+                col_hp, col_hc, col_hn, col_he, col_hx = st.columns([1.5, 1.5, 3, 1.5, 1])
+                col_hp.markdown("**Periodo**")
+                col_hc.markdown("**Código**")
+                col_hn.markdown("**Asignatura**")
+                col_he.markdown("**Estado**")
+                col_hx.markdown("**Acción**")
+                
+                for i, row in historial_df.iterrows():
+                    cp, cc, cn, ce, cx = st.columns([1.5, 1.5, 3, 1.5, 1])
+                    cp.write(row['Periodo_Cursado'])
+                    cc.write(row['Codigo_Oficial'])
+                    cn.write(row['Nombre_Clase'])
+                    color = "green" if row['Estado'] == "Aprobado" else "red"
+                    ce.markdown(f":{color}[{row['Estado']}]")
+                    
+                    # Botón para borrar el registro directo de la Base de Datos
+                    if cx.button("❌", key=f"del_bd_{row['ID_Registro']}", help="Eliminar permanentemente de la BD"):
+                        conn = get_connection()
+                        cursor = conn.cursor()
+                        cursor.execute(f"DELETE FROM Historial_Academico WHERE ID_Registro = {row['ID_Registro']}")
+                        conn.commit()
+                        conn.close()
+                        st.rerun()
+            else:
+                st.info("El historial de este estudiante está vacío.")
 
     # --- TAB 3: EDITAR HISTORIAL ---
     with tab3:
