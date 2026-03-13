@@ -2,6 +2,7 @@ import sys
 import os
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+from app.student_portal import vista_estudiante
 
 import streamlit as st
 import hashlib
@@ -542,54 +543,6 @@ def vista_jefe_departamento():
         
         # Invocamos la función del archivo gestion_docentes.py
         gd.mostrar_gestion_docentes(engine_admin)
-
-# ==========================================
-# 4. VISTA: ESTUDIANTE
-# ==========================================
-def vista_estudiante():
-    st.sidebar.title(f"🎓 Estudiante: {st.session_state['user_name']}")
-    if st.sidebar.button("Cerrar Sesión", use_container_width=True):
-        cerrar_sesion()
-        
-    st.title("Mi Historial Académico")
-    
-    conn = get_connection()
-    df = pd.read_sql(f"""
-        SELECT h.Periodo_Cursado, m.Codigo_Oficial, m.Nombre_Clase, m.Unidades_Valorativas, h.Estado 
-        FROM Historial_Academico h JOIN Malla_Curricular m ON h.ID_Clase = m.ID_Clase
-        WHERE h.Hash_Cuenta = '{st.session_state['user_hash']}' ORDER BY h.Periodo_Cursado ASC
-    """, conn)
-    conn.close()
-    
-    if df.empty:
-        st.info("Aún no tienes clases registradas.")
-    else:
-        col_header1, col_header2 = st.columns([3, 1])
-        with col_header1:
-            uv_totales = df[df['Estado'] == 'Aprobado']['Unidades_Valorativas'].sum()
-            st.metric("Total de Unidades Valorativas Aprobadas", int(uv_totales))
-        with col_header2:
-            csv_completo = df.to_csv(index=False).encode('utf-8')
-            st.download_button(label="📥 Descargar Historial Completo", data=csv_completo, file_name="mi_historial.csv", mime="text/csv", type="primary", use_container_width=True)
-            
-        st.divider()
-
-        periodos_unicos = df['Periodo_Cursado'].unique()
-        try:
-            periodos_ordenados = sorted(periodos_unicos, key=lambda x: (int(x.split('-')[1]), int(x.split('-')[0])))
-        except:
-            periodos_ordenados = periodos_unicos
-        
-        for periodo in periodos_ordenados:
-            st.markdown(f"### 📅 Periodo Académico: `{periodo}`")
-            df_periodo = df[df['Periodo_Cursado'] == periodo][['Codigo_Oficial', 'Nombre_Clase', 'Unidades_Valorativas', 'Estado']]
-            df_periodo.index = range(1, len(df_periodo) + 1)
-            
-            def color_estado(val):
-                return 'color: green' if val == 'Aprobado' else 'color: red; font-weight: bold'
-            
-            st.dataframe(df_periodo.style.applymap(color_estado, subset=['Estado']), use_container_width=True)
-            st.write("---")
 
 # ==========================================
 # MAIN APP ROUTING
