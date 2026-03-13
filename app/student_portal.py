@@ -12,6 +12,8 @@ EQUIVALENCIAS = {
     'ISC-414': ['IS-710'], 'ISC-336': ['IS-711'], 'ISC-437': ['IS-603']
 }
 
+OPTATIVAS_2021 = ['IS-910', 'IS-911', 'IS-914', 'IS-912', 'IS-913']
+
 def es_clase_aprobada_o_equivalente(codigo_clase, aprobadas):
     if codigo_clase in aprobadas: return True
     if codigo_clase in EQUIVALENCIAS:
@@ -33,18 +35,35 @@ def cumple_prerrequisitos_estudiante(prereq_str, aprobadas, uv_actuales):
                 return False
     return True
 
+def calcular_estado_egresando(aprobadas_set, plan, malla_df):
+    malla_carrera = malla_df[
+        (malla_df['Plan_Perteneciente'] == plan) & 
+        (malla_df['Codigo_Oficial'].str.startswith(('IS', 'ISC', 'IE')))
+    ]
+    
+    aprobadas_optativas = 0
+    if plan == '2021':
+        malla_core = malla_carrera[~malla_carrera['Codigo_Oficial'].isin(OPTATIVAS_2021)]
+        aprobadas_core = len([c for c in aprobadas_set if c in malla_core['Codigo_Oficial'].values])
+        core_faltantes = len(malla_core) - aprobadas_core
+        
+        aprobadas_optativas = len([c for c in aprobadas_set if c in OPTATIVAS_2021])
+        optativas_faltantes = max(0, 3 - aprobadas_optativas)
+        
+        total_faltantes = core_faltantes + optativas_faltantes
+    else:
+        aprobadas_carrera = len([c for c in aprobadas_set if c in malla_carrera['Codigo_Oficial'].values])
+        total_faltantes = len(malla_carrera) - aprobadas_carrera
+        
+    es_egresando = True if total_faltantes <= 8 else False
+    return es_egresando, total_faltantes, aprobadas_optativas
+
 # ==========================================
 # VISTA PRINCIPAL DEL ESTUDIANTE
 # ==========================================
 def vista_estudiante():
     st.sidebar.title(f"🎓 Estudiante: {st.session_state['user_name']}")
     
-    # Botón de cerrar sesión
-    if st.sidebar.button("Cerrar Sesión", use_container_width=True):
-        for key in list(st.session_state.keys()):
-            del st.session_state[key]
-        st.rerun()
-        
     hash_usuario = st.session_state['user_hash']
     conn = get_connection()
     
@@ -65,6 +84,10 @@ def vista_estudiante():
         ORDER BY h.Periodo_Cursado ASC
     """, conn)
     
+    # 3. Traer la Malla Completa para los cálculos
+    malla_df = pd.read_sql(f"SELECT ID_Clase, Codigo_Oficial, Nombre_Clase, Prerrequisitos, Unidades_Valorativas, Plan_Perteneciente FROM Malla_Curricular WHERE Plan_Perteneciente = '{plan_actual}'", conn)
+
+    # 4. Calcular Métricas
     if not historial_df.empty:
         aprobadas_set = set(historial_df[historial_df['Estado'] == 'Aprobado']['Codigo_Oficial'].tolist())
         uv_totales = historial_df[historial_df['Estado'] == 'Aprobado']['Unidades_Valorativas'].sum()
@@ -72,7 +95,22 @@ def vista_estudiante():
         aprobadas_set = set()
         uv_totales = 0
 
-    tab_historial, tab_censo = st.tabs(["📋 Mi Historial Académico", "🚀 Censo de Matrícula"])
+    es_egresando, clases_faltantes, opt_aprobadas = calcular_estado_egresando(aprobadas_set, plan_actual, malla_df)
+
+    if es_egresando:
+        st.sidebar.success("🌟 **¡Estudiante por Egresar!**")
+        st.sidebar.caption(f"Solo te faltan **{clases_faltantes}** clases para finalizar.")
+    else:
+        st.sidebar.info("📚 Estatus: Estudiante Regular")
+        st.sidebar.caption(f"Clases de carrera faltantes: **{clases_faltantes}**")
+
+    st.sidebar.markdown("---")
+    if st.sidebar.button("🚪 Cerrar Sesión", use_container_width=True):
+        for key in list(st.session_state.keys()):
+            del st.session_state[key]
+        st.rerun()
+
+    tab_historial, tab_censo = st.tabs(["📋 Mi Historial Académico", "🚀 Planificar mi Próximo Periodo"])
     
     # --- PESTAÑA 1: HISTORIAL ---
     with tab_historial:
@@ -107,31 +145,47 @@ def vista_estudiante():
                 st.dataframe(df_periodo.style.applymap(color_estado, subset=['Estado']), use_container_width=True)
                 st.write("---")
 
-    # --- PESTAÑA 2: CENSO ---
+    # --- PESTAÑA 2: CENSO MEJORADO (UI/UX) ---
     with tab_censo:
-        st.title("Planificación Académica")
+        st.title("Censo de Matrícula Inteligente")
         
         censo_df = pd.read_sql(f"""
-            SELECT c.Jornada_Preferencia, m.Codigo_Oficial, m.Nombre_Clase 
+            SELECT c.Jornada_Preferencia, m.Codigo_Oficial, m.Nombre_Clase, m.Unidades_Valorativas 
             FROM censo_periodo_actual c 
             JOIN Malla_Curricular m ON c.ID_Clase = m.ID_Clase 
             WHERE c.Hash_Cuenta = '{hash_usuario}'
         """, conn)
         
         if not censo_df.empty:
-            st.success("✅ Ya completaste el Censo de Matrícula. ¡Gracias por participar!")
-            jornada = censo_df.iloc[0]['Jornada_Preferencia']
-            st.markdown(f"**Tus clases seleccionadas (Preferencia: {jornada}):**")
+            st.success("✅ ¡Censo completado! Tu intención de matrícula ha sido enviada al Motor de Inteligencia Artificial.")
+            st.markdown("### 📋 Resumen de tu Planificación:")
+            
+            # Vista bonita de las clases ya elegidas
             for _, row in censo_df.iterrows():
-                st.markdown(f"- 📚 **{row['Codigo_Oficial']}** - {row['Nombre_Clase']}")
-            st.caption("🤖 Esta información será extraída por el Modelo de Inteligencia Artificial para priorizar tus secciones.")
+                with st.container(border=True):
+                    col1, col2 = st.columns([3, 1])
+                    with col1:
+                        st.markdown(f"**{row['Codigo_Oficial']}** - {row['Nombre_Clase']}")
+                        st.caption(f"Valor: {row['Unidades_Valorativas']} UV")
+                    with col2:
+                        st.info(f"🕒 Jornada: **{row['Jornada_Preferencia']}**")
+            
+            st.caption("Nota: Si deseas modificar tu censo, comunícate con la Jefatura del Departamento.")
         else:
-            st.write("Selecciona las clases que deseas cursar el próximo periodo.")
-            malla_df = pd.read_sql(f"SELECT ID_Clase, Codigo_Oficial, Nombre_Clase, Prerrequisitos, Unidades_Valorativas FROM Malla_Curricular WHERE Plan_Perteneciente = '{plan_actual}'", conn)
+            st.markdown("Ayúdanos a planificar los horarios del próximo periodo. **El sistema ha evaluado tu progreso y solo te mostrará las asignaturas que tienes derecho a llevar.**")
+            st.write("")
+            
+            if plan_actual == '2021':
+                if opt_aprobadas >= 3:
+                    st.success(f"🎉 ¡Felicidades! Ya aprobaste {opt_aprobadas} optativas. Las demás han sido ocultadas.")
+                elif opt_aprobadas > 0:
+                    st.info(f"💡 Has aprobado {opt_aprobadas} de las 3 optativas requeridas.")
             
             clases_desbloqueadas = []
             for _, row in malla_df.iterrows():
                 cod = row['Codigo_Oficial']
+                if plan_actual == '2021' and cod in OPTATIVAS_2021 and opt_aprobadas >= 3:
+                    continue 
                 if not es_clase_aprobada_o_equivalente(cod, aprobadas_set):
                     if cumple_prerrequisitos_estudiante(row['Prerrequisitos'], aprobadas_set, int(uv_totales)):
                         clases_desbloqueadas.append(row.to_dict())
@@ -140,32 +194,67 @@ def vista_estudiante():
                 st.balloons()
                 st.success("🎉 ¡Felicidades! Has completado todas las clases de tu plan de estudios.")
             else:
-                with st.container(border=True):
-                    opciones_mostrar = {c['ID_Clase']: f"{c['Codigo_Oficial']} - {c['Nombre_Clase']} ({c['Unidades_Valorativas']} UV)" for c in clases_desbloqueadas}
+                # 🛑 PASO 1: SELECCIÓN DE CLASES
+                st.markdown("### 1️⃣ Paso 1: Elige tus asignaturas")
+                opciones_mostrar = {c['ID_Clase']: f"{c['Codigo_Oficial']} - {c['Nombre_Clase']} ({c['Unidades_Valorativas']} UV)" for c in clases_desbloqueadas}
+                
+                clases_seleccionadas = st.multiselect(
+                    "Selecciona las clases que tienes planeado matricular:",
+                    options=list(opciones_mostrar.keys()),
+                    format_func=lambda x: opciones_mostrar[x],
+                    placeholder="Haz clic aquí para ver las clases desbloqueadas..."
+                )
+                
+                # 🛑 PASO 2: ASIGNACIÓN DE JORNADA DINÁMICA
+                if clases_seleccionadas:
+                    st.divider()
+                    st.markdown("### 2️⃣ Paso 2: Configura tu horario preferido")
                     
-                    clases_seleccionadas = st.multiselect(
-                        "📚 Asignaturas Disponibles",
-                        options=list(opciones_mostrar.keys()),
-                        format_func=lambda x: opciones_mostrar[x]
-                    )
-                    jornada = st.selectbox("¿En qué jornada prefieres llevar estas clases?", ["Mañana", "Tarde", "Noche"])
+                    # Calcular UV en vivo
+                   # Calcular UV en vivo
+                    uv_planeadas = sum([c['Unidades_Valorativas'] for c in clases_desbloqueadas if c['ID_Clase'] in clases_seleccionadas])
+                    
+                    if uv_planeadas > 25:
+                        st.error(f"🚨 Estás intentando planificar **{uv_planeadas} UV**. El límite máximo permitido por las Normas Académicas es de 25 UV por periodo.")
+                    else:
+                        st.info(f"📊 Carga académica planificada: **{uv_planeadas} UV** (Límite máximo: 25 UV).")
+                    
+                    st.write("Indícanos en qué momento del día prefieres llevar cada una de las clases seleccionadas:")
+                    
+                    # Diccionario para guardar la preferencia de cada clase
+                    preferencias_jornada = {}
+                    
+                    for id_c in clases_seleccionadas:
+                        clase_info = next(c for c in clases_desbloqueadas if c['ID_Clase'] == id_c)
+                        
+                        # Diseño de tarjetas para cada clase seleccionada
+                        with st.container(border=True):
+                            col_info, col_jor = st.columns([2, 1])
+                            with col_info:
+                                st.markdown(f"**{clase_info['Codigo_Oficial']}** - {clase_info['Nombre_Clase']}")
+                            with col_jor:
+                                preferencias_jornada[id_c] = st.selectbox(
+                                    "Jornada", 
+                                    ["Mañana", "Tarde", "Noche"], 
+                                    key=f"jor_{id_c}",
+                                    label_visibility="collapsed"
+                                )
                     
                     st.write("")
-                    if st.button("🚀 Guardar y Enviar mi Censo", type="primary", use_container_width=True):
-                        if not clases_seleccionadas:
-                            st.warning("⚠️ Debes seleccionar al menos una clase.")
-                        else:
-                            cursor = conn.cursor()
-                            try:
-                                for id_c in clases_seleccionadas:
-                                    cursor.execute("""
-                                        INSERT INTO censo_periodo_actual (Hash_Cuenta, ID_Clase, Jornada_Preferencia, Prioridad_Alumno)
-                                        VALUES (%s, %s, %s, 1)
-                                    """, (hash_usuario, id_c, jornada))
-                                conn.commit()
-                                st.success("✅ ¡Censo guardado exitosamente!")
-                                st.rerun()
-                            except Exception as e:
-                                st.error(f"Error: {e}")
+                    # Botón final
+                    if st.button("🚀 Confirmar y Enviar mi Planificación", type="primary", use_container_width=True):
+                        cursor = conn.cursor()
+                        try:
+                            # Guardamos cada clase con SU PROPIA jornada seleccionada
+                            for id_c, jornada_elegida in preferencias_jornada.items():
+                                cursor.execute("""
+                                    INSERT INTO censo_periodo_actual (Hash_Cuenta, ID_Clase, Jornada_Preferencia, Prioridad_Alumno)
+                                    VALUES (%s, %s, %s, 1)
+                                """, (hash_usuario, id_c, jornada_elegida))
+                            conn.commit()
+                            st.success("✅ ¡Censo guardado exitosamente!")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Error al conectar con la base de datos: {e}")
                                 
     conn.close()
