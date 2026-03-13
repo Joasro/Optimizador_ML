@@ -512,26 +512,40 @@ def vista_jefe_departamento():
 
     # --- TAB 4: ESTADÍSTICAS ---
     with tab4:
-        # ...existing code...
-        st.subheader("Resumen de Estudiantes por Plan de Estudio")
+        st.subheader("📊 Análisis Demográfico y Académico")
+        st.markdown("Resumen analítico de la población estudiantil activa en el sistema.")
+        
         conn = get_connection()
         try:
             stats_df = pd.read_sql("SELECT Plan_Estudio, COUNT(*) as Total FROM Estudiantes GROUP BY Plan_Estudio", conn)
+            
             if stats_df.empty:
                 st.info("No hay datos de estudiantes para mostrar.")
             else:
-                col_m1, col_m2 = st.columns(2)
+                col_m1, col_m2, col_m3 = st.columns(3)
+                total_alumnos = stats_df['Total'].sum()
+                
+                # Métrica Principal
+                col_m1.metric("👥 Población Total Activa", total_alumnos)
+                
+                # Iteramos sobre los planes para crear métricas dinámicas (Ej. Plan 2021, Plan 2025)
                 for i, row in stats_df.iterrows():
-                    with (col_m1 if i % 2 == 0 else col_m2):
-                        st.metric(label=f"Plan {row['Plan_Estudio']}", value=f"{row['Total']} Estudiantes")
+                    if i % 2 == 0:
+                        col_m2.metric(f"🎓 Estudiantes Plan {row['Plan_Estudio']}", row['Total'])
+                    else:
+                        col_m3.metric(f"🎓 Estudiantes Plan {row['Plan_Estudio']}", row['Total'])
+                
                 st.divider()
-                st.write("### Distribución por Plan")
-                st.bar_chart(stats_df.set_index('Plan_Estudio'))
+                
+                with st.container(border=True):
+                    st.markdown("#### 📈 Distribución Poblacional por Plan de Estudios")
+                    # Gráfico de barras nativo y elegante de Streamlit
+                    st.bar_chart(stats_df.set_index('Plan_Estudio'), color="#4F8BF9")
+                    
         except Exception as e:
             st.error(f"Error al cargar las estadísticas: {e}")
         finally:
             conn.close()
-
     # --- TAB 5: GESTIÓN DE DOCENTES ---
     with tab5:
         # Aquí creas la conexión a la base de datos que pasaremos a la función
