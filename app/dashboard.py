@@ -71,12 +71,13 @@ def vista_jefe_departamento():
     st.title("🛡️ Panel de Control - Jefe de Departamento")
 
     # Añadir pestaña de gestión de docentes
-    tab1, tab2, tab3, tab4, tab5 = st.tabs([
-        "🆕 Registrar Estudiante",
-        "📝 Matricular Periodo",
-        "✏️ Editar / Corregir Historial",
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+        "👥 Registrar Estudiante",
+        "📚 Matricular Clases",
+        "📅 Generar Horarios (IA)",
         "📊 Estadísticas",
-        "👨‍🏫 Gestión de Docentes" # Esta es tab5
+        "👨‍🏫 Gestión Docente",
+        "📡 Censo en Vivo"
     ])
 
  # Inicializar memoria temporal para el historial si no existe
@@ -557,6 +558,126 @@ def vista_jefe_departamento():
         
         # Invocamos la función del archivo gestion_docentes.py
         gd.mostrar_gestion_docentes(engine_admin)
+
+    # --- TAB 6: MONITOR DEL CENSO EN VIVO ---
+    with tab6:
+        st.subheader("📡 Monitor del Censo de Matrícula (Tiempo Real)")
+        st.write("Analiza las intenciones de matrícula de los estudiantes agrupadas por asignatura. Se resalta automáticamente a los estudiantes por egresar.")
+        
+        conn = get_connection()
+        try:
+            # 1. Traer datos del censo cruzados con la información del estudiante
+            query_censo = """
+                SELECT c.Jornada_Preferencia, m.Codigo_Oficial, m.Nombre_Clase, u.Nombre_Completo, c.Hash_Cuenta, e.Plan_Estudio
+                FROM censo_periodo_actual c
+                JOIN Malla_Curricular m ON c.ID_Clase = m.ID_Clase
+                JOIN Usuarios u ON c.Hash_Cuenta = u.Hash_Cuenta
+                JOIN Estudiantes e ON c.Hash_Cuenta = e.Hash_Cuenta
+            """
+            censo_df = pd.read_sql(query_censo, conn)
+
+            if censo_df.empty:
+                st.info("Aún no hay respuestas registradas en el censo para este periodo.")
+            else:
+                # 2. Traer el historial de todos los estudiantes para calcular si son Egresandos
+                historial_df = pd.read_sql("""
+                    SELECT h.Hash_Cuenta, m.Codigo_Oficial
+                    FROM Historial_Academico h
+                    JOIN Malla_Curricular m ON h.ID_Clase = m.ID_Clase
+                    WHERE h.Estado = 'Aprobado'
+                """, conn)
+                
+                malla_df = pd.read_sql("SELECT Codigo_Oficial, Plan_Perteneciente FROM Malla_Curricular", conn)
+                
+                # Diccionario temporal para guardar quién es egresando y optimizar la velocidad
+                dict_egresando = {}
+                OPTATIVAS_2021 = ['IS-910', 'IS-911', 'IS-914', 'IS-912', 'IS-913']
+                
+                for hash_c in censo_df['Hash_Cuenta'].unique():
+                    plan_est = censo_df[censo_df['Hash_Cuenta'] == hash_c].iloc[0]['Plan_Estudio']
+                    aprobadas_set = set(historial_df[historial_df['Hash_Cuenta'] == hash_c]['Codigo_Oficial'].tolist())
+                    
+                    malla_carrera = malla_df[(malla_df['Plan_Perteneciente'] == plan_est) & (malla_df['Codigo_Oficial'].str.startswith(('IS', 'ISC', 'IE')))]
+                    
+                    if plan_est == '2021':
+                        malla_core = malla_carrera[~malla_carrera['Codigo_Oficial'].isin(OPTATIVAS_2021)]
+                        aprobadas_core = len([c for c in aprobadas_set if c in malla_core['Codigo_Oficial'].values])
+                        core_faltantes = len(malla_core) - aprobadas_core
+                        aprobadas_optativas = len([c for c in aprobadas_set if c in OPTATIVAS_2021])
+                        optativas_faltantes = max(0, 3 - aprobadas_optativas)
+                        total_faltantes = core_faltantes + optativas_faltantes
+                    else:
+                        aprobadas_carrera = len([c for c in aprobadas_set if c in malla_carrera['Codigo_Oficial'].values])
+                        total_faltantes = len(malla_carrera) - aprobadas_carrera
+                        
+                    dict_egresando[hash_c] = total_faltantes <= 8
+
+                # 3. Aplicamos la etiqueta de Egresando al Dataframe del Censo
+                censo_df['Es_Egresando'] = censo_df['Hash_Cuenta'].map(dict_egresando)
+
+                # 4. Agrupamos por Asignatura para ver cuáles son las más demandadas
+                resumen_clases = censo_df.groupby(['Codigo_Oficial', 'Nombre_Clase']).size().reset_index(name='Total_Solicitudes')
+                resumen_clases = resumen_clases.sort_values(by='Total_Solicitudes', ascending=False)
+                
+                # --- UI: DICCIONARIO DE HORAS ---
+                HORAS_CENSO = {
+                    "07:00:00": "07:00 AM - 08:00 AM", "08:00:00": "08:00 AM - 09:00 AM", 
+                    "09:00:00": "09:00 AM - 10:00 AM", "10:00:00": "10:00 AM - 11:00 AM", 
+                    "11:00:00": "11:00 AM - 12:00 PM", "12:00:00": "12:00 PM - 01:00 PM",
+                    "13:00:00": "01:00 PM - 02:00 PM", "14:00:00": "02:00 PM - 03:00 PM", 
+                    "15:00:00": "03:00 PM - 04:00 PM", "16:00:00": "04:00 PM - 05:00 PM", 
+                    "17:00:00": "05:00 PM - 06:00 PM", "18:00:00": "06:00 PM - 07:00 PM", 
+                    "19:00:00": "07:00 PM - 08:00 PM", "20:00:00": "08:00 PM - 09:00 PM"
+                }
+
+                st.divider()
+                st.markdown("### 🏆 Top Asignaturas Solicitadas")
+                st.caption("Despliega cada asignatura para ver el detalle de los estudiantes y la hora exacta que necesitan.")
+                
+                # 5. Generar un bloque desplegable (Expander) por cada clase
+                for _, row in resumen_clases.iterrows():
+                    cod = row['Codigo_Oficial']
+                    nom = row['Nombre_Clase']
+                    total = row['Total_Solicitudes']
+                    
+                    estudiantes_clase = censo_df[censo_df['Codigo_Oficial'] == cod]
+                    num_egresandos = estudiantes_clase['Es_Egresando'].sum()
+                    
+                    # Alerta visual si hay alumnos por egresar pidiendo esta clase
+                    alerta_egresando = f" | 🚨 {num_egresandos} por egresar" if num_egresandos > 0 else ""
+                    
+                    with st.expander(f"📚 {cod} - {nom} | 👥 {total} solicitudes {alerta_egresando}"):
+                        
+                        detail_df = estudiantes_clase[['Nombre_Completo', 'Jornada_Preferencia', 'Es_Egresando']].copy()
+                        
+                        # Formato amigable de horas y estado
+                        detail_df['Hora Solicitada'] = detail_df['Jornada_Preferencia'].apply(lambda x: HORAS_CENSO.get(x, x))
+                        detail_df['Estado'] = detail_df['Es_Egresando'].apply(lambda x: "Por Egresar" if x else "Regular")
+                        
+                        # Ordenamos para que los de "Por Egresar" salgan de primeros en la tabla
+                        detail_df = detail_df.sort_values(by='Es_Egresando', ascending=False)
+                        
+                        detail_df = detail_df[['Nombre_Completo', 'Hora Solicitada', 'Estado']]
+                        detail_df.rename(columns={'Nombre_Completo': 'Estudiante'}, inplace=True)
+                        
+                   
+                        # Pintar de amarillo con texto oscuro para garantizar lectura en modo claro/oscuro
+                        def color_egresando(row):
+                            if row['Estado'] == 'Por Egresar':
+                                # Usamos amarillo suave de fondo y gris/negro muy oscuro para las letras
+                                return ['background-color: #FFF3CD; color: #212529; font-weight: bold' for _ in row]
+                            else:
+                                return ['' for _ in row]
+                        
+                        st.dataframe(
+                            detail_df.style.apply(color_egresando, axis=1), 
+                            use_container_width=True, 
+                            hide_index=True
+                        )
+        except Exception as e:
+            st.error(f"Error al cargar los datos del censo: {e}")
+        finally:
+            conn.close()   
 
 # ==========================================
 # MAIN APP ROUTING

@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 from config.db_connection import get_connection
 
-# --- DICCIONARIO Y FUNCIONES DE EQUIVALENCIAS ---
+# --- DICCIONARIOS INTELIGENTES ---
 EQUIVALENCIAS = {
     'ISC-101': ['IS-110', 'MM-314'], 'ISC-102': ['IS-210'], 'ISC-103': ['IS-410'],
     'ISC-211': ['IS-310'], 'ISC-321': ['IS-501'], 'ISC-422': ['IS-601'],
@@ -13,6 +13,17 @@ EQUIVALENCIAS = {
 }
 
 OPTATIVAS_2021 = ['IS-910', 'IS-911', 'IS-914', 'IS-912', 'IS-913']
+
+# 🛑 NUEVO: DICCIONARIO DE HORAS EXACTAS
+HORAS_CENSO = {
+    "07:00:00": "07:00 AM - 08:00 AM", "08:00:00": "08:00 AM - 09:00 AM", 
+    "09:00:00": "09:00 AM - 10:00 AM", "10:00:00": "10:00 AM - 11:00 AM", 
+    "11:00:00": "11:00 AM - 12:00 PM", "12:00:00": "12:00 PM - 01:00 PM",
+    "13:00:00": "01:00 PM - 02:00 PM", "14:00:00": "02:00 PM - 03:00 PM", 
+    "15:00:00": "03:00 PM - 04:00 PM", "16:00:00": "04:00 PM - 05:00 PM", 
+    "17:00:00": "05:00 PM - 06:00 PM", "18:00:00": "06:00 PM - 07:00 PM", 
+    "19:00:00": "07:00 PM - 08:00 PM", "20:00:00": "08:00 PM - 09:00 PM"
+}
 
 def es_clase_aprobada_o_equivalente(codigo_clase, aprobadas):
     if codigo_clase in aprobadas: return True
@@ -40,16 +51,13 @@ def calcular_estado_egresando(aprobadas_set, plan, malla_df):
         (malla_df['Plan_Perteneciente'] == plan) & 
         (malla_df['Codigo_Oficial'].str.startswith(('IS', 'ISC', 'IE')))
     ]
-    
     aprobadas_optativas = 0
     if plan == '2021':
         malla_core = malla_carrera[~malla_carrera['Codigo_Oficial'].isin(OPTATIVAS_2021)]
         aprobadas_core = len([c for c in aprobadas_set if c in malla_core['Codigo_Oficial'].values])
         core_faltantes = len(malla_core) - aprobadas_core
-        
         aprobadas_optativas = len([c for c in aprobadas_set if c in OPTATIVAS_2021])
         optativas_faltantes = max(0, 3 - aprobadas_optativas)
-        
         total_faltantes = core_faltantes + optativas_faltantes
     else:
         aprobadas_carrera = len([c for c in aprobadas_set if c in malla_carrera['Codigo_Oficial'].values])
@@ -67,7 +75,6 @@ def vista_estudiante():
     hash_usuario = st.session_state['user_hash']
     conn = get_connection()
     
-    # 1. Obtener el Plan del Estudiante
     est_df = pd.read_sql(f"SELECT Plan_Estudio FROM Estudiantes WHERE Hash_Cuenta = '{hash_usuario}'", conn)
     if est_df.empty:
         st.error("No se encontró tu información en la base de datos.")
@@ -75,7 +82,6 @@ def vista_estudiante():
         return
     plan_actual = est_df.iloc[0]['Plan_Estudio']
 
-    # 2. Obtener el Historial Completo
     historial_df = pd.read_sql(f"""
         SELECT h.Periodo_Cursado, m.Codigo_Oficial, m.Nombre_Clase, m.Unidades_Valorativas, h.Estado 
         FROM Historial_Academico h 
@@ -84,10 +90,8 @@ def vista_estudiante():
         ORDER BY h.Periodo_Cursado ASC
     """, conn)
     
-    # 3. Traer la Malla Completa para los cálculos
     malla_df = pd.read_sql(f"SELECT ID_Clase, Codigo_Oficial, Nombre_Clase, Prerrequisitos, Unidades_Valorativas, Plan_Perteneciente FROM Malla_Curricular WHERE Plan_Perteneciente = '{plan_actual}'", conn)
 
-    # 4. Calcular Métricas
     if not historial_df.empty:
         aprobadas_set = set(historial_df[historial_df['Estado'] == 'Aprobado']['Codigo_Oficial'].tolist())
         uv_totales = historial_df[historial_df['Estado'] == 'Aprobado']['Unidades_Valorativas'].sum()
@@ -115,7 +119,6 @@ def vista_estudiante():
     # --- PESTAÑA 1: HISTORIAL ---
     with tab_historial:
         st.title("Mi Historial Académico")
-        
         if historial_df.empty:
             st.info("Aún no tienes clases registradas.")
         else:
@@ -127,7 +130,6 @@ def vista_estudiante():
                 st.download_button("📥 Descargar CSV", data=csv_completo, file_name="mi_historial.csv", mime="text/csv", type="primary", use_container_width=True)
                 
             st.divider()
-
             periodos_unicos = historial_df['Periodo_Cursado'].unique()
             try:
                 periodos_ordenados = sorted(periodos_unicos, key=lambda x: (int(x.split('-')[1]), int(x.split('-')[0])))
@@ -138,16 +140,14 @@ def vista_estudiante():
                 st.markdown(f"### 📅 Periodo Académico: `{periodo}`")
                 df_periodo = historial_df[historial_df['Periodo_Cursado'] == periodo][['Codigo_Oficial', 'Nombre_Clase', 'Unidades_Valorativas', 'Estado']]
                 df_periodo.index = range(1, len(df_periodo) + 1)
-                
                 def color_estado(val):
                     return 'color: green' if val == 'Aprobado' else 'color: red; font-weight: bold'
-                
                 st.dataframe(df_periodo.style.applymap(color_estado, subset=['Estado']), use_container_width=True)
                 st.write("---")
 
-    # --- PESTAÑA 2: CENSO MEJORADO (UI/UX) ---
+    # --- PESTAÑA 2: CENSO POR HORA EXACTA ---
     with tab_censo:
-        st.title("Censo de Matrícula Inteligente")
+        st.title("Censo de Matrícula (Hora Exacta)")
         
         censo_df = pd.read_sql(f"""
             SELECT c.Jornada_Preferencia, m.Codigo_Oficial, m.Nombre_Clase, m.Unidades_Valorativas 
@@ -157,22 +157,24 @@ def vista_estudiante():
         """, conn)
         
         if not censo_df.empty:
-            st.success("✅ ¡Censo completado! Tu intención de matrícula ha sido enviada al Motor de Inteligencia Artificial.")
-            st.markdown("### 📋 Resumen de tu Planificación:")
+            st.success("✅ ¡Censo completado! Tu planificación exacta ha sido enviada al Optimizador.")
+            st.markdown("### 📋 Resumen de tu Horario Planeado:")
             
-            # Vista bonita de las clases ya elegidas
             for _, row in censo_df.iterrows():
                 with st.container(border=True):
-                    col1, col2 = st.columns([3, 1])
+                    col1, col2 = st.columns([3, 1.5])
                     with col1:
                         st.markdown(f"**{row['Codigo_Oficial']}** - {row['Nombre_Clase']}")
                         st.caption(f"Valor: {row['Unidades_Valorativas']} UV")
                     with col2:
-                        st.info(f"🕒 Jornada: **{row['Jornada_Preferencia']}**")
+                        # Convertimos la hora de la BD al texto amigable para mostrarlo
+                        hora_bd = row['Jornada_Preferencia']
+                        hora_texto = HORAS_CENSO.get(hora_bd, hora_bd)
+                        st.info(f"🕒 **{hora_texto}**")
             
             st.caption("Nota: Si deseas modificar tu censo, comunícate con la Jefatura del Departamento.")
         else:
-            st.markdown("Ayúdanos a planificar los horarios del próximo periodo. **El sistema ha evaluado tu progreso y solo te mostrará las asignaturas que tienes derecho a llevar.**")
+            st.markdown("Diseña tu horario ideal. Selecciona la **hora exacta** en la que necesitas llevar cada clase para poder trabajar o realizar tus otras actividades.")
             st.write("")
             
             if plan_actual == '2021':
@@ -194,7 +196,6 @@ def vista_estudiante():
                 st.balloons()
                 st.success("🎉 ¡Felicidades! Has completado todas las clases de tu plan de estudios.")
             else:
-                # 🛑 PASO 1: SELECCIÓN DE CLASES
                 st.markdown("### 1️⃣ Paso 1: Elige tus asignaturas")
                 opciones_mostrar = {c['ID_Clase']: f"{c['Codigo_Oficial']} - {c['Nombre_Clase']} ({c['Unidades_Valorativas']} UV)" for c in clases_desbloqueadas}
                 
@@ -202,16 +203,13 @@ def vista_estudiante():
                     "Selecciona las clases que tienes planeado matricular:",
                     options=list(opciones_mostrar.keys()),
                     format_func=lambda x: opciones_mostrar[x],
-                    placeholder="Haz clic aquí para ver las clases desbloqueadas..."
+                    placeholder="Haz clic aquí para ver las clases disponibles..."
                 )
                 
-                # 🛑 PASO 2: ASIGNACIÓN DE JORNADA DINÁMICA
                 if clases_seleccionadas:
                     st.divider()
-                    st.markdown("### 2️⃣ Paso 2: Configura tu horario preferido")
+                    st.markdown("### 2️⃣ Paso 2: Asigna la hora exacta")
                     
-                    # Calcular UV en vivo
-                   # Calcular UV en vivo
                     uv_planeadas = sum([c['Unidades_Valorativas'] for c in clases_desbloqueadas if c['ID_Clase'] in clases_seleccionadas])
                     
                     if uv_planeadas > 25:
@@ -219,42 +217,38 @@ def vista_estudiante():
                     else:
                         st.info(f"📊 Carga académica planificada: **{uv_planeadas} UV** (Límite máximo: 25 UV).")
                     
-                    st.write("Indícanos en qué momento del día prefieres llevar cada una de las clases seleccionadas:")
+                    st.write("Indícanos a qué hora prefieres llevar cada clase:")
                     
-                    # Diccionario para guardar la preferencia de cada clase
-                    preferencias_jornada = {}
-                    
+                    preferencias_hora = {}
                     for id_c in clases_seleccionadas:
                         clase_info = next(c for c in clases_desbloqueadas if c['ID_Clase'] == id_c)
-                        
-                        # Diseño de tarjetas para cada clase seleccionada
                         with st.container(border=True):
-                            col_info, col_jor = st.columns([2, 1])
+                            col_info, col_hora = st.columns([2, 1.5])
                             with col_info:
                                 st.markdown(f"**{clase_info['Codigo_Oficial']}** - {clase_info['Nombre_Clase']}")
-                            with col_jor:
-                                preferencias_jornada[id_c] = st.selectbox(
-                                    "Jornada", 
-                                    ["Mañana", "Tarde", "Noche"], 
-                                    key=f"jor_{id_c}",
+                            with col_hora:
+                                # 🛑 EL NUEVO SELECTOR DE HORA EXACTA
+                                preferencias_hora[id_c] = st.selectbox(
+                                    "Hora Preferida", 
+                                    options=list(HORAS_CENSO.keys()),
+                                    format_func=lambda x: HORAS_CENSO[x],
+                                    key=f"hora_{id_c}",
                                     label_visibility="collapsed"
                                 )
                     
                     st.write("")
-                    # Botón final
                     if st.button("🚀 Confirmar y Enviar mi Planificación", type="primary", use_container_width=True):
                         cursor = conn.cursor()
                         try:
-                            # Guardamos cada clase con SU PROPIA jornada seleccionada
-                            for id_c, jornada_elegida in preferencias_jornada.items():
+                            for id_c, hora_elegida in preferencias_hora.items():
                                 cursor.execute("""
                                     INSERT INTO censo_periodo_actual (Hash_Cuenta, ID_Clase, Jornada_Preferencia, Prioridad_Alumno)
                                     VALUES (%s, %s, %s, 1)
-                                """, (hash_usuario, id_c, jornada_elegida))
+                                """, (hash_usuario, id_c, hora_elegida))
                             conn.commit()
                             st.success("✅ ¡Censo guardado exitosamente!")
                             st.rerun()
                         except Exception as e:
-                            st.error(f"Error al conectar con la base de datos: {e}")
+                            st.error(f"Error al guardar: {e}. ¿Ejecutaste el comando ALTER TABLE en tu base de datos?")
                                 
     conn.close()
