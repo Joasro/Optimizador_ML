@@ -1,6 +1,6 @@
 import sys
 import os
-
+import streamlit.components.v1 as components
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from app.student_portal import vista_estudiante
 
@@ -70,10 +70,12 @@ def vista_jefe_departamento():
 
     st.title("🛡️ Panel de Control - Jefe de Departamento")
 
-    # Añadir pestaña de gestión de docentes
-    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+
+    # Añadir pestaña de IA y arreglar el orden
+    tab1, tab2, tab_edit, tab_ia, tab4, tab5, tab6 = st.tabs([
         "👥 Registrar Estudiante",
         "📚 Matricular Clases",
+        "✏️ Editar Historial",
         "📅 Generar Horarios (IA)",
         "📊 Estadísticas",
         "👨‍🏫 Gestión Docente",
@@ -430,7 +432,7 @@ def vista_jefe_departamento():
                 st.info("El historial de este estudiante está vacío.")
 
     # --- TAB 3: EDITAR HISTORIAL ---
-    with tab3:
+    with tab_edit:
         # ...existing code...
         st.subheader("Edición Rápida de Registros")
         conn = get_connection()
@@ -510,6 +512,232 @@ def vista_jefe_departamento():
                     st.toast("✅ Base de datos actualizada.")
                     st.rerun()
         conn.close()
+
+        # --- TAB IA: GENERAR HORARIOS Y MATRIZ CONDENSADA ---
+    # --- TAB IA: GENERAR HORARIOS Y MATRIZ CONDENSADA ---
+    with tab_ia:
+        st.subheader("🧠 Motor de IA: Planificación Condensada")
+        st.markdown("Ejecuta el cruce de variables complejas (Censo, Prerrequisitos, Aulas y Disponibilidad Docente) para generar el horario óptimo.")
+        
+        from sqlalchemy import create_engine, text
+        user = "Joasro"
+        password = "Akriila123." 
+        host = "localhost"
+        db = "dss_academico_unah"
+        engine_ia = create_engine(f"mysql+mysqlconnector://{user}:{password}@{host}/{db}")
+                
+        if st.button("🚀 Ejecutar Optimizador Logístico", type="primary", use_container_width=True):
+            with st.spinner("⏳ 1/2 Analizando expedientes, prerrequisitos y censo de estudiantes..."):
+                from src.ml.demand_model import predecir_demanda_estricta
+                df_demanda = predecir_demanda_estricta(engine_ia)
+                
+            if df_demanda.empty:
+                st.error("⚠️ No hay suficientes datos de demanda en el censo para generar un horario.")
+            else:
+                with st.spinner("⚙️ 2/2 Ejecutando Google OR-Tools para optimización física de aulas y docentes..."):
+                    from src.optimizer.scheduler import ejecutar_optimizador
+                    exito, alertas = ejecutar_optimizador(engine_ia)
+                    
+                if exito:
+                    st.success("✅ ¡Matriz Generada y Guardada en Base de Datos Temporal!")
+                    if alertas:
+                        for alerta in alertas:
+                            st.warning(f"🚨 {alerta}")
+                else:
+                    st.error(f"❌ Error en el motor: {alertas[0]}")
+                    
+        st.divider()
+        st.markdown("### 📊 Vista Previa: Planificación Condensada ISC")
+        
+        # Agregamos ID_Seccion, ID_Docente y ID_Espacio para poder editarlos
+        query_matriz = """
+            SELECT 
+                o.ID_Seccion, o.Hora_Inicio, o.Hora_Fin, 
+                e.Nombre_Espacio as Aula, e.ID_Espacio,
+                m.Codigo_Oficial, m.Nombre_Clase, m.Unidades_Valorativas,
+                d.Nombre as Docente, d.ID_Docente, o.Dias, o.Cupos_Maximos
+            FROM oferta_academica_generada o
+            JOIN Malla_Curricular m ON o.ID_Clase = m.ID_Clase
+            JOIN espacios_fisicos e ON o.ID_Espacio = e.ID_Espacio
+            JOIN docentes_activos d ON o.ID_Docente = d.ID_Docente
+        """
+        try:
+            df_oferta = pd.read_sql(query_matriz, engine_ia)
+        except:
+            df_oferta = pd.DataFrame()
+        
+        if not df_oferta.empty:
+            # 1. Rango de Horas Limpio para el eje Y
+            def limpiar_hora_visual(h):
+                h_str = str(h).strip()
+                if 'days' in h_str: return h_str.split('days')[1].strip()[:5]
+                return h_str[:5]
+                
+            df_oferta['Hora_Inicio_Limpia'] = df_oferta['Hora_Inicio'].apply(limpiar_hora_visual)
+            df_oferta['Hora_Fin_Limpia'] = df_oferta['Hora_Fin'].apply(limpiar_hora_visual)
+            df_oferta['Hora_Rango'] = df_oferta['Hora_Inicio_Limpia'] + " - " + df_oferta['Hora_Fin_Limpia']
+            
+            # 2. Celda HTML
+            # ==========================================
+            # 2. Celda HTML (Sin saltos de línea para no romper Streamlit)
+            # ==========================================
+            df_oferta['Info_Celda'] = (
+                "<div style='padding:8px; border-radius:5px; background-color:#f8f9fa; border-left:4px solid #4F8BF9; margin-bottom:4px; font-size:12px; color:#333;'>"
+                "<b style='color:#004085;'>" + df_oferta['Codigo_Oficial'] + "</b> - " + df_oferta['Nombre_Clase'] + "<br>"
+                "👨‍🏫 <i>" + df_oferta['Docente'] + "</i><br>"
+                "⚡ " + df_oferta['Unidades_Valorativas'].astype(str) + " UV | 📅 <b>" + df_oferta['Dias'] + "</b><br>"
+                "<span style='color:#28a745; font-weight:bold;'>👥 Cupos: " + df_oferta['Cupos_Maximos'].astype(str) + "</span>"
+                "</div>"
+            )
+            
+            # ==========================================
+            # 3. Pivot Table Inmune a Crasheos
+            # ==========================================
+            matriz = df_oferta.pivot_table(
+                index='Hora_Rango', 
+                columns='Aula', 
+                values='Info_Celda', 
+                aggfunc=lambda x: "".join(x) # Apila sin saltos que rompan el markdown
+            ).fillna("")
+            
+            matriz = matriz.sort_index()
+            
+            # Nombres limpios para los ejes
+            matriz.index.name = "⌚ Hora / Aula 🏫"
+            matriz.columns.name = None
+            
+            # ==========================================
+            # 4. Renderizado Nativo y Seguro
+            # ==========================================
+            # Dejamos que Pandas construya la tabla perfectamente cuadrada
+            tabla_html = matriz.to_html(escape=False, classes="matriz-unah", border=0)
+            
+            # Le aplicamos los estilos oficiales
+            css_tabla = """
+            <style>
+                .matriz-unah { width: 100%; border-collapse: collapse; font-family: sans-serif; background-color: white; margin-top: 15px; box-shadow: 0px 4px 6px rgba(0,0,0,0.1);}
+                .matriz-unah thead th { background-color: #004085 !important; color: white !important; padding: 12px; text-align: center; border: 1px solid #dee2e6; font-size: 14px;}
+                .matriz-unah tbody th { background-color: #e9ecef !important; color: #333 !important; font-weight: bold; text-align: center; border: 1px solid #dee2e6; padding: 10px; width: 130px; }
+                .matriz-unah tbody td { border: 1px solid #dee2e6; padding: 10px; vertical-align: top; }
+                /* Eliminar comportamiento de lista de markdown en Streamlit */
+                .matriz-unah p { margin: 0; padding: 0; }
+            </style>
+            """
+            
+            # Imprimimos en pantalla
+            st.markdown(css_tabla + tabla_html, unsafe_allow_html=True)
+            
+            # 3. Pivot Table Inmune a Crasheos
+            matriz = df_oferta.pivot_table(
+                index='Hora_Rango', 
+                columns='Aula', 
+                values='Info_Celda', 
+                aggfunc=lambda x: "<br>".join(x)
+            ).fillna("")
+            matriz = matriz.sort_index()
+            
+            # 🛑 AQUÍ QUITAMOS LOS NOMBRES FEOS DE LOS EJES ("Aula" y "Hora_Rango")
+            matriz.columns.name = None
+            matriz.index.name = None
+            
+            # 4. Mostrar Tabla
+            # ==========================================
+            # 4. Renderizado Inmune a Streamlit (Usando Components)
+            # ==========================================
+            
+            
+            # Generamos el HTML base con Pandas
+            tabla_html = matriz.to_html(escape=False, border=0)
+            
+            # Creamos un documento HTML completo e independiente
+            html_completo = f"""
+            <!DOCTYPE html>
+            <html>
+            <head>
+            <style>
+                body {{ font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: white; margin: 0; padding: 10px; }}
+                .dataframe {{ width: 100%; border-collapse: collapse; box-shadow: 0px 4px 6px rgba(0,0,0,0.1); }}
+                .dataframe thead th {{ background-color: #004085 !important; color: white !important; padding: 12px; text-align: center; border: 1px solid #dee2e6; font-size: 14px; position: sticky; top: 0; }}
+                .dataframe tbody th {{ background-color: #e9ecef !important; color: #333 !important; font-weight: bold; text-align: center; border: 1px solid #dee2e6; padding: 10px; width: 130px; }}
+                .dataframe tbody td {{ border: 1px solid #dee2e6; padding: 10px; vertical-align: top; }}
+                .dataframe tbody tr:hover {{ background-color: #f1f3f5; }}
+            </style>
+            </head>
+            <body>
+                {tabla_html}
+            </body>
+            </html>
+            """
+            
+            # Inyectamos el HTML en un contenedor aislado (iframe) de 600px de alto con scroll
+            components.html(html_completo, height=600, scrolling=True)
+            
+            st.divider()
+            
+            # ==========================================
+            # 🛑 NUEVA SECCIÓN: EDITOR MANUAL DE CARGA
+            # ==========================================
+            st.markdown("### 🛠️ Editor Manual de Carga Académica")
+            st.write("¿La IA cometió un error o quieres hacer un ajuste fino? Selecciona una sección para modificarla o borrarla.")
+            
+            # Opciones de secciones generadas
+            opciones_sec = {f"{row['Codigo_Oficial']} - {row['Nombre_Clase']} ({row['Hora_Inicio_Limpia']} en {row['Aula']})": row['ID_Seccion'] for _, row in df_oferta.iterrows()}
+            sec_seleccionada = st.selectbox("🔍 Buscar Sección:", ["Seleccione..."] + list(opciones_sec.keys()))
+            
+            if sec_seleccionada != "Seleccione...":
+                id_sec_edit = opciones_sec[sec_seleccionada]
+                sec_actual = df_oferta[df_oferta['ID_Seccion'] == id_sec_edit].iloc[0]
+                
+                # Cargar listas para combos
+                df_docs = pd.read_sql("SELECT ID_Docente, Nombre FROM docentes_activos", engine_ia)
+                dict_docs = dict(zip(df_docs['Nombre'], df_docs['ID_Docente']))
+                
+                df_esp = pd.read_sql("SELECT ID_Espacio, Nombre_Espacio FROM espacios_fisicos", engine_ia)
+                dict_esp = dict(zip(df_esp['Nombre_Espacio'], df_esp['ID_Espacio']))
+                
+                with st.container(border=True):
+                    col_e1, col_e2 = st.columns(2)
+                    with col_e1:
+                        # Aseguramos que el index no falle si el docente/aula ya no existe
+                        idx_doc = list(dict_docs.values()).index(sec_actual['ID_Docente']) if sec_actual['ID_Docente'] in dict_docs.values() else 0
+                        nuevo_doc = st.selectbox("👨‍🏫 Reasignar Docente", list(dict_docs.keys()), index=idx_doc)
+                        
+                        idx_esp = list(dict_esp.values()).index(sec_actual['ID_Espacio']) if sec_actual['ID_Espacio'] in dict_esp.values() else 0
+                        nueva_aula = st.selectbox("🏫 Reasignar Aula", list(dict_esp.keys()), index=idx_esp)
+                        
+                    with col_e2:
+                        st.write(" ")
+                        st.write(" ")
+                        # Botón Editar
+                        if st.button("💾 Guardar Cambios", use_container_width=True):
+                            with engine_ia.begin() as con:
+                                con.execute(text("UPDATE oferta_academica_generada SET ID_Docente = :d, ID_Espacio = :e WHERE ID_Seccion = :s"), 
+                                            {"d": dict_docs[nuevo_doc], "e": dict_esp[nueva_aula], "s": id_sec_edit})
+                            st.success("¡Sección modificada!")
+                            st.rerun()
+                            
+                        # Botón Eliminar
+                        if st.button("🗑️ Eliminar Sección", type="primary", use_container_width=True):
+                            with engine_ia.begin() as con:
+                                con.execute(text("DELETE FROM oferta_academica_generada WHERE ID_Seccion = :s"), {"s": id_sec_edit})
+                            st.warning("Sección eliminada de la oferta.")
+                            st.rerun()
+                            
+            st.divider()
+            
+            # ==========================================
+            # BOTÓN DE APROBACIÓN FINAL
+            # ==========================================
+            st.markdown("#### ¿Satisfecho con la propuesta del sistema?")
+            col_a, col_b, col_c = st.columns([1,2,1])
+            with col_b:
+                if st.button("✅ APROBAR Y PUBLICAR OFERTA PARA ESTUDIANTES", type="primary", use_container_width=True):
+                    with engine_ia.begin() as con:
+                        con.execute(text("UPDATE oferta_academica_generada SET Aprobado_Por_Jefatura = 1"))
+                    st.success("🎉 ¡Oferta Académica Publicada Oficialmente! Los estudiantes ya pueden matricularse en el portal.")
+                    st.balloons()
+        else:
+            st.info("No hay una oferta académica generada actualmente. Ejecuta el optimizador arriba.")
 
     # --- TAB 4: ESTADÍSTICAS ---
     with tab4:
