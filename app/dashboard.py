@@ -515,6 +515,7 @@ def vista_jefe_departamento():
 
         # --- TAB IA: GENERAR HORARIOS Y MATRIZ CONDENSADA ---
     # --- TAB IA: GENERAR HORARIOS Y MATRIZ CONDENSADA ---
+    # --- TAB IA: GENERAR HORARIOS Y MATRIZ CONDENSADA ---
     with tab_ia:
         st.subheader("🧠 Motor de IA: Planificación Condensada")
         st.markdown("Ejecuta el cruce de variables complejas (Censo, Prerrequisitos, Aulas y Disponibilidad Docente) para generar el horario óptimo.")
@@ -567,7 +568,6 @@ def vista_jefe_departamento():
             df_oferta = pd.DataFrame()
         
         if not df_oferta.empty:
-            # 1. Rango de Horas Limpio para el eje Y
             def limpiar_hora_visual(h):
                 h_str = str(h).strip()
                 if 'days' in h_str: return h_str.split('days')[1].strip()[:5]
@@ -577,7 +577,6 @@ def vista_jefe_departamento():
             df_oferta['Hora_Fin_Limpia'] = df_oferta['Hora_Fin'].apply(limpiar_hora_visual)
             df_oferta['Hora_Rango'] = df_oferta['Hora_Inicio_Limpia'] + " - " + df_oferta['Hora_Fin_Limpia']
             
-            # 2. Celda HTML
             # ==========================================
             # 2. Celda HTML (Sin saltos de línea para no romper Streamlit)
             # ==========================================
@@ -597,90 +596,41 @@ def vista_jefe_departamento():
                 index='Hora_Rango', 
                 columns='Aula', 
                 values='Info_Celda', 
-                aggfunc=lambda x: "".join(x) # Apila sin saltos que rompan el markdown
+                aggfunc=lambda x: "".join(x)
             ).fillna("")
             
             matriz = matriz.sort_index()
-            
-            # Nombres limpios para los ejes
             matriz.index.name = "⌚ Hora / Aula 🏫"
-            matriz.columns.name = None
+            matriz.columns.name = ""
             
             # ==========================================
-            # 4. Renderizado Nativo y Seguro
+            # 4. Renderizado a Prueba de Streamlit
             # ==========================================
-            # Dejamos que Pandas construya la tabla perfectamente cuadrada
-            tabla_html = matriz.to_html(escape=False, classes="matriz-unah", border=0)
+            html_raw = matriz.to_html(escape=False)
             
-            # Le aplicamos los estilos oficiales
+            # 🛑 LA MAGIA: Borramos todos los saltos de línea (\n)
+            html_limpio = html_raw.replace("\n", "")
+            
             css_tabla = """
             <style>
-                .matriz-unah { width: 100%; border-collapse: collapse; font-family: sans-serif; background-color: white; margin-top: 15px; box-shadow: 0px 4px 6px rgba(0,0,0,0.1);}
-                .matriz-unah thead th { background-color: #004085 !important; color: white !important; padding: 12px; text-align: center; border: 1px solid #dee2e6; font-size: 14px;}
-                .matriz-unah tbody th { background-color: #e9ecef !important; color: #333 !important; font-weight: bold; text-align: center; border: 1px solid #dee2e6; padding: 10px; width: 130px; }
-                .matriz-unah tbody td { border: 1px solid #dee2e6; padding: 10px; vertical-align: top; }
-                /* Eliminar comportamiento de lista de markdown en Streamlit */
-                .matriz-unah p { margin: 0; padding: 0; }
+                table.dataframe { width: 100%; border-collapse: collapse; font-family: sans-serif; background-color: white; margin-top: 15px; }
+                table.dataframe thead th { background-color: #004085 !important; color: white !important; padding: 12px; text-align: center; border: 1px solid #dee2e6; }
+                table.dataframe tbody th { background-color: #e9ecef !important; color: #333 !important; font-weight: bold; text-align: center; border: 1px solid #dee2e6; padding: 10px; width: 130px; }
+                table.dataframe tbody td { border: 1px solid #dee2e6; padding: 8px; vertical-align: top; }
             </style>
-            """
+            """.replace("\n", "")
             
-            # Imprimimos en pantalla
-            st.markdown(css_tabla + tabla_html, unsafe_allow_html=True)
-            
-            # 3. Pivot Table Inmune a Crasheos
-            matriz = df_oferta.pivot_table(
-                index='Hora_Rango', 
-                columns='Aula', 
-                values='Info_Celda', 
-                aggfunc=lambda x: "<br>".join(x)
-            ).fillna("")
-            matriz = matriz.sort_index()
-            
-            # 🛑 AQUÍ QUITAMOS LOS NOMBRES FEOS DE LOS EJES ("Aula" y "Hora_Rango")
-            matriz.columns.name = None
-            matriz.index.name = None
-            
-            # 4. Mostrar Tabla
-            # ==========================================
-            # 4. Renderizado Inmune a Streamlit (Usando Components)
-            # ==========================================
-            
-            
-            # Generamos el HTML base con Pandas
-            tabla_html = matriz.to_html(escape=False, border=0)
-            
-            # Creamos un documento HTML completo e independiente
-            html_completo = f"""
-            <!DOCTYPE html>
-            <html>
-            <head>
-            <style>
-                body {{ font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: white; margin: 0; padding: 10px; }}
-                .dataframe {{ width: 100%; border-collapse: collapse; box-shadow: 0px 4px 6px rgba(0,0,0,0.1); }}
-                .dataframe thead th {{ background-color: #004085 !important; color: white !important; padding: 12px; text-align: center; border: 1px solid #dee2e6; font-size: 14px; position: sticky; top: 0; }}
-                .dataframe tbody th {{ background-color: #e9ecef !important; color: #333 !important; font-weight: bold; text-align: center; border: 1px solid #dee2e6; padding: 10px; width: 130px; }}
-                .dataframe tbody td {{ border: 1px solid #dee2e6; padding: 10px; vertical-align: top; }}
-                .dataframe tbody tr:hover {{ background-color: #f1f3f5; }}
-            </style>
-            </head>
-            <body>
-                {tabla_html}
-            </body>
-            </html>
-            """
-            
-            # Inyectamos el HTML en un contenedor aislado (iframe) de 600px de alto con scroll
-            components.html(html_completo, height=600, scrolling=True)
+            # Imprimimos en pantalla de forma 100% segura
+            st.markdown(css_tabla + html_limpio, unsafe_allow_html=True)
             
             st.divider()
             
             # ==========================================
-            # 🛑 NUEVA SECCIÓN: EDITOR MANUAL DE CARGA
+            # 🛑 EDITOR MANUAL DE CARGA
             # ==========================================
             st.markdown("### 🛠️ Editor Manual de Carga Académica")
             st.write("¿La IA cometió un error o quieres hacer un ajuste fino? Selecciona una sección para modificarla o borrarla.")
             
-            # Opciones de secciones generadas
             opciones_sec = {f"{row['Codigo_Oficial']} - {row['Nombre_Clase']} ({row['Hora_Inicio_Limpia']} en {row['Aula']})": row['ID_Seccion'] for _, row in df_oferta.iterrows()}
             sec_seleccionada = st.selectbox("🔍 Buscar Sección:", ["Seleccione..."] + list(opciones_sec.keys()))
             
@@ -688,7 +638,6 @@ def vista_jefe_departamento():
                 id_sec_edit = opciones_sec[sec_seleccionada]
                 sec_actual = df_oferta[df_oferta['ID_Seccion'] == id_sec_edit].iloc[0]
                 
-                # Cargar listas para combos
                 df_docs = pd.read_sql("SELECT ID_Docente, Nombre FROM docentes_activos", engine_ia)
                 dict_docs = dict(zip(df_docs['Nombre'], df_docs['ID_Docente']))
                 
@@ -698,7 +647,6 @@ def vista_jefe_departamento():
                 with st.container(border=True):
                     col_e1, col_e2 = st.columns(2)
                     with col_e1:
-                        # Aseguramos que el index no falle si el docente/aula ya no existe
                         idx_doc = list(dict_docs.values()).index(sec_actual['ID_Docente']) if sec_actual['ID_Docente'] in dict_docs.values() else 0
                         nuevo_doc = st.selectbox("👨‍🏫 Reasignar Docente", list(dict_docs.keys()), index=idx_doc)
                         
@@ -708,7 +656,6 @@ def vista_jefe_departamento():
                     with col_e2:
                         st.write(" ")
                         st.write(" ")
-                        # Botón Editar
                         if st.button("💾 Guardar Cambios", use_container_width=True):
                             with engine_ia.begin() as con:
                                 con.execute(text("UPDATE oferta_academica_generada SET ID_Docente = :d, ID_Espacio = :e WHERE ID_Seccion = :s"), 
@@ -716,7 +663,6 @@ def vista_jefe_departamento():
                             st.success("¡Sección modificada!")
                             st.rerun()
                             
-                        # Botón Eliminar
                         if st.button("🗑️ Eliminar Sección", type="primary", use_container_width=True):
                             with engine_ia.begin() as con:
                                 con.execute(text("DELETE FROM oferta_academica_generada WHERE ID_Seccion = :s"), {"s": id_sec_edit})
@@ -738,7 +684,6 @@ def vista_jefe_departamento():
                     st.balloons()
         else:
             st.info("No hay una oferta académica generada actualmente. Ejecuta el optimizador arriba.")
-
     # --- TAB 4: ESTADÍSTICAS ---
     with tab4:
         st.subheader("📊 Análisis Demográfico y Académico")
