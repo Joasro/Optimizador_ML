@@ -3,7 +3,7 @@ import os
 import streamlit.components.v1 as components
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from app.student_portal import vista_estudiante
-
+import datetime
 import streamlit as st
 import hashlib
 import pandas as pd
@@ -72,14 +72,16 @@ def vista_jefe_departamento():
 
 
     # Añadir pestaña de IA y arreglar el orden
-    tab1, tab2, tab_edit, tab_ia, tab4, tab5, tab6 = st.tabs([
+   # Añadir pestaña de IA y arreglar el orden
+    tab1, tab2, tab_edit, tab_ia, tab4, tab5, tab6, tab_historial_clases = st.tabs([
         "👥 Registrar Estudiante",
         "📚 Matricular Clases",
         "✏️ Editar Historial",
         "📅 Generar Horarios (IA)",
         "📊 Estadísticas",
         "👨‍🏫 Gestión Docente",
-        "📡 Censo en Vivo"
+        "📡 Censo en Vivo",
+        "📜 Historial de Clases" # NUEVA PESTAÑA
     ])
 
  # Inicializar memoria temporal para el historial si no existe
@@ -851,6 +853,166 @@ def vista_jefe_departamento():
             st.error(f"Error al cargar los datos del censo: {e}")
         finally:
             conn.close()   
+
+    # --- TAB 7: HISTORIAL HISTÓRICO DE CLASES ---
+    with tab_historial_clases:
+        st.subheader("📜 Carga de Historial de Clases (Últimos Periodos)")
+        st.write("Registra cómo se impartieron las asignaturas en periodos anteriores para que la Inteligencia Artificial aprenda las preferencias de horarios, docentes y aulas.")
+
+        conn = get_connection()
+        try:
+            # Traer catálogos para los selectbox
+            df_clases = pd.read_sql("SELECT ID_Clase, Codigo_Oficial, Nombre_Clase FROM Malla_Curricular WHERE Codigo_Oficial LIKE 'IS%' OR Codigo_Oficial LIKE 'ISC%' OR Codigo_Oficial LIKE 'IE%'", conn)
+            df_docentes = pd.read_sql("SELECT ID_Docente, Nombre FROM docentes_activos", conn)
+            df_espacios = pd.read_sql("SELECT ID_Espacio, Nombre_Espacio FROM espacios_fisicos", conn)
+
+            with st.container(border=True):
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    per_hist_input = st.text_input("Periodo Académico", placeholder="Ej: 3-2024")
+                    
+                    # Selectbox de clases con formato amigable
+                    opciones_clases = df_clases['ID_Clase'].tolist()
+                    formato_clase = lambda x: f"{df_clases[df_clases['ID_Clase'] == x]['Codigo_Oficial'].values[0]} - {df_clases[df_clases['ID_Clase'] == x]['Nombre_Clase'].values[0]}"
+                    clase_hist_sel = st.selectbox("Asignatura", options=opciones_clases, format_func=formato_clase)
+                    
+                    # Selectbox de docentes
+                    opciones_docentes = [None] + df_docentes['ID_Docente'].tolist()
+                    formato_docente = lambda x: "Sin asignar / No aplica" if x is None else df_docentes[df_docentes['ID_Docente'] == x]['Nombre'].values[0]
+                    docente_hist_sel = st.selectbox("Docente que la impartió", options=opciones_docentes, format_func=formato_docente)
+
+                with col2:
+                    # Selectbox de espacios/aulas
+                    opciones_espacios = [None] + df_espacios['ID_Espacio'].tolist()
+                    formato_espacio = lambda x: "Sin asignar / Virtual" if x is None else df_espacios[df_espacios['ID_Espacio'] == x]['Nombre_Espacio'].values[0]
+                    espacio_hist_sel = st.selectbox("Aula donde se impartió", options=opciones_espacios, format_func=formato_espacio)
+                    
+                    st.write("Horario Impartido:")
+                    c_h1, c_h2 = st.columns(2)
+
+                    
+                    # Forzamos saltos de 1 hora (step=3600 segundos) y ponemos 07:00 por defecto
+                    hora_in_hist = c_h1.time_input("Hora de Inicio", 
+                                                   value=datetime.time(7, 0), 
+                                                   step=datetime.timedelta(hours=1))
+                                                   
+                    hora_out_hist = c_h2.time_input("Hora de Fin", 
+                                                    value=datetime.time(8, 0), 
+                                                    step=datetime.timedelta(hours=1))
+                if st.button("💾 Guardar Registro Histórico", type="primary", use_container_width=True):
+                    if per_hist_input and hora_in_hist and hora_out_hist:
+                        cursor = conn.cursor()
+                        # Query actualizada sin el campo "Dias"
+                        cursor.execute("""
+                            INSERT INTO historial_oferta_academica 
+                            (Periodo_Academico, ID_Clase, ID_Docente, ID_Espacio, Hora_Inicio, Hora_Fin) 
+                            VALUES (%s, %s, %s, %s, %s, %s)
+                        """, (per_hist_input, clase_hist_sel, docente_hist_sel, espacio_hist_sel, hora_in_hist.strftime('%H:%M:%S'), hora_out_hist.strftime('%H:%M:%S')))
+                        conn.commit()
+                        st.success("✅ ¡Registro histórico guardado! La IA ahora tiene un patrón más para analizar.")
+                        st.rerun()
+                    else:
+                        st.warning("⚠️ Debes ingresar al menos el Periodo y las Horas de Inicio y Fin.")
+
+            st.divider()
+            st.markdown("### 📋 Registros Actuales en la Base de Conocimiento")
+            
+            # Query actualizada para no llamar al campo "Dias"
+            df_historial_conocimiento = pd.read_sql("""
+                SELECT h.ID_Historial, h.Periodo_Academico, m.Codigo_Oficial, d.Nombre as Docente, 
+                       e.Nombre_Espacio as Aula, h.Hora_Inicio, h.Hora_Fin
+                FROM historial_oferta_academica h
+                LEFT JOIN Malla_Curricular m ON h.ID_Clase = m.ID_Clase
+                LEFT JOIN docentes_activos d ON h.ID_Docente = d.ID_Docente
+                LEFT JOIN espacios_fisicos e ON h.ID_Espacio = e.ID_Espacio
+                ORDER BY h.Periodo_Academico DESC, m.Codigo_Oficial ASC
+            """, conn)
+            
+            if not df_historial_conocimiento.empty:
+                st.dataframe(df_historial_conocimiento, use_container_width=True, hide_index=True)
+            else:
+                st.info("La tabla de conocimiento histórico está vacía. ¡Agrega el primer registro arriba!")
+            # Mostrar tabla con los datos actuales
+            df_historial_conocimiento = pd.read_sql("""
+                SELECT h.ID_Historial, h.Periodo_Academico, m.Codigo_Oficial, d.Nombre as Docente, 
+                       e.Nombre_Espacio as Aula, h.Hora_Inicio, h.Hora_Fin
+                FROM historial_oferta_academica h
+                LEFT JOIN Malla_Curricular m ON h.ID_Clase = m.ID_Clase
+                LEFT JOIN docentes_activos d ON h.ID_Docente = d.ID_Docente
+                LEFT JOIN espacios_fisicos e ON h.ID_Espacio = e.ID_Espacio
+                ORDER BY h.Periodo_Academico DESC, m.Codigo_Oficial ASC
+            """, conn)
+            
+            if not df_historial_conocimiento.empty:
+                st.dataframe(df_historial_conocimiento, use_container_width=True, hide_index=True)
+                
+                # ==========================================
+                # 🛑 EDITOR INDIVIDUAL DE HISTORIAL
+                # ==========================================
+                st.divider()
+                st.markdown("### ✏️ Editar o Eliminar Registro")
+                
+                # Crear diccionario visual para el buscador
+                dic_registros = {f"[{row['Periodo_Academico']}] {row['Codigo_Oficial']} - {row['Hora_Inicio']} en {row['Aula']}": row['ID_Historial'] for _, row in df_historial_conocimiento.iterrows()}
+                sel_registro = st.selectbox("🔍 Buscar registro histórico para modificar:", ["Seleccione..."] + list(dic_registros.keys()))
+                
+                if sel_registro != "Seleccione...":
+                    id_edit = dic_registros[sel_registro]
+                    # Obtener los datos crudos del registro seleccionado
+                    df_actual = pd.read_sql(f"SELECT * FROM historial_oferta_academica WHERE ID_Historial = {id_edit}", conn)
+                    datos_actuales = df_actual.iloc[0]
+                    
+                    with st.container(border=True):
+                        st.write(f"**Modificando ID:** {id_edit}")
+                        col_e1, col_e2 = st.columns(2)
+                        
+                        with col_e1:
+                            edit_per = st.text_input("📝 Editar Periodo", value=datos_actuales['Periodo_Academico'])
+                            
+                            # Mantener el docente actual seleccionado
+                            id_docente_actual = datos_actuales['ID_Docente']
+                            idx_doc = opciones_docentes.index(id_docente_actual) if id_docente_actual in opciones_docentes else 0
+                            edit_docente = st.selectbox("👨‍🏫 Cambiar Docente", options=opciones_docentes, format_func=formato_docente, index=idx_doc, key="ed_doc")
+                            
+                        with col_e2:
+                            # Mantener el aula actual seleccionada
+                            id_espacio_actual = datos_actuales['ID_Espacio']
+                            idx_esp = opciones_espacios.index(id_espacio_actual) if id_espacio_actual in opciones_espacios else 0
+                            edit_espacio = st.selectbox("🏫 Cambiar Aula", options=opciones_espacios, format_func=formato_espacio, index=idx_esp, key="ed_esp")
+                            
+                            st.write(" ")
+                            st.write(" ")
+                            c_btn1, c_btn2 = st.columns(2)
+                            
+                            # Botón para Actualizar
+                            if c_btn1.button("💾 Actualizar", use_container_width=True):
+                                cursor = conn.cursor()
+                                cursor.execute("""
+                                    UPDATE historial_oferta_academica 
+                                    SET Periodo_Academico = %s, ID_Docente = %s, ID_Espacio = %s
+                                    WHERE ID_Historial = %s
+                                """, (edit_per, edit_docente, edit_espacio, id_edit))
+                                conn.commit()
+                                st.success("✅ ¡Registro actualizado correctamente!")
+                                st.rerun()
+                                
+                            # Botón para Eliminar
+                            if c_btn2.button("🗑️ Borrar", type="primary", use_container_width=True):
+                                cursor = conn.cursor()
+                                cursor.execute("DELETE FROM historial_oferta_academica WHERE ID_Historial = %s", (id_edit,))
+                                conn.commit()
+                                st.warning("🚨 ¡Registro eliminado del historial!")
+                                st.rerun()
+
+            else:
+                st.info("La tabla de conocimiento histórico está vacía. ¡Agrega el primer registro arriba!")
+
+        except Exception as e:
+            st.error(f"Error al cargar la interfaz de historial: {e}")
+        finally:
+            conn.close()
+        
 
 # ==========================================
 # MAIN APP ROUTING

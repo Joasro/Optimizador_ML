@@ -26,6 +26,7 @@ def docente_puede_dar_clase(docente, hora_int):
         return ini_p <= hora_int < fin_p
 
 def ejecutar_optimizador(engine):
+    # 1. Cargar Docentes
     df_docentes = pd.read_sql("""
         SELECT d.ID_Docente, d.Nombre, d.Hora_Inicio_Turno, d.Hora_Fin_Turno, d.Horas_Bloqueadas,
                d.Acepta_Virtualidad, d.Hora_Inicio_Virtual, d.Hora_Fin_Virtual,
@@ -38,20 +39,49 @@ def ejecutar_optimizador(engine):
     docentes = df_docentes.to_dict('records')
     for d in docentes: d['Areas'] = [int(x) for x in str(d['Areas']).split(',')] if pd.notna(d['Areas']) else []
 
+    # 2. Cargar Aulas
     df_espacios = pd.read_sql("SELECT ID_Espacio, Nombre_Espacio, Capacidad_Maxima as Capacidad FROM espacios_fisicos", engine)
     espacios = df_espacios.to_dict('records')
 
+    # 3. Cargar Demanda (Desde tu CSV original)
     try:
         df_demanda = pd.read_csv('data/demanda_proyectada_2026.csv')
     except:
-        return False, ["No hay demanda generada. Asegúrese de que haya datos en el censo."]
-        
+        return False, ["No hay demanda generada. Asegúrese de que haya datos en el censo (CSV no encontrado)."]
     clases = df_demanda.to_dict('records')
     
+    # 4. NUEVO: CARGAR HISTORIAL DE LA BASE DE DATOS
+    # 4. NUEVO: CARGAR HISTORIAL DE LA BASE DE DATOS
+    try:
+        df_hist = pd.read_sql("SELECT ID_Clase, ID_Docente, ID_Espacio, Hora_Inicio FROM historial_oferta_academica", engine)
+        hist_stats = {}
+        docente_aula_pref = {} # 👈 NUEVO: Diccionario para las aulas de los docentes
+        
+        if not df_hist.empty:
+            df_hist['Hora_Int'] = df_hist['Hora_Inicio'].apply(lambda x: extraer_hora(x))
+            
+            # 1. Sacar la moda por CLASE (Lo que ya tenías)
+            for c_id, group in df_hist.groupby('ID_Clase'):
+                h_mod = group['Hora_Int'].mode()[0] if not group['Hora_Int'].mode().empty else -1
+                r_mod = group['ID_Espacio'].mode()[0] if not group['ID_Espacio'].mode().empty else -1
+                d_mod = group['ID_Docente'].mode()[0] if not group['ID_Docente'].mode().empty else -1
+                hist_stats[c_id] = {'h': h_mod, 'r': r_mod, 'd': d_mod}
+                
+            # 2. 👈 NUEVO: Sacar la moda de aula por DOCENTE
+            for d_id, group in df_hist.groupby('ID_Docente'):
+                if not group['ID_Espacio'].mode().empty:
+                    docente_aula_pref[d_id] = group['ID_Espacio'].mode()[0]
+                    
+    except Exception as e:
+        print(f"Aviso: No se pudo cargar historial ({e}). Se usará optimización pura.")
+        hist_stats = {}
+        docente_aula_pref = {}
+
     model = cp_model.CpModel()
     asignaciones = {}
     horas_disponibles = list(range(7, 21))
 
+    # Variables
     for c in clases:
         c_id = int(c['ID_Clase'])
         for h in horas_disponibles:
@@ -61,6 +91,7 @@ def ejecutar_optimizador(engine):
                         var_name = f'A_c{c_id}_d{d["ID_Docente"]}_r{r["ID_Espacio"]}_h{h}'
                         asignaciones[(c_id, d['ID_Docente'], r['ID_Espacio'], h)] = model.NewBoolVar(var_name)
 
+    # Restricciones Duras
     for d in docentes:
         for h in horas_disponibles:
             model.AddAtMostOne([asignaciones[k] for k in asignaciones if k[1] == d['ID_Docente'] and k[3] == h])
@@ -69,6 +100,8 @@ def ejecutar_optimizador(engine):
             model.AddAtMostOne([asignaciones[k] for k in asignaciones if k[2] == r['ID_Espacio'] and k[3] == h])
 
     costos = []
+    
+    # Restricción de Cupos (Slack)
     for c in clases:
         c_id = int(c['ID_Clase'])
         vars_clase = [asignaciones[k] for k in asignaciones if k[0] == c_id]
@@ -80,14 +113,45 @@ def ejecutar_optimizador(engine):
             ) + slack >= int(c['Cupos_Estimados']))
             costos.append(slack * 5000)
 
+    # NUEVO: LÓGICA DE COSTOS Y RECOMPENSAS HISTÓRICAS
     for k, var in asignaciones.items():
-        c_id, _, _, h = k
+        c_id, d_id, r_id, h = k
         c_info = next(c for c in clases if int(c['ID_Clase']) == c_id)
+        
         hora_ideal = -1
-        if str(c_info['Hora_Sugerida']) != 'Sin preferencia':
+        if str(c_info.get('Hora_Sugerida', 'Sin preferencia')) != 'Sin preferencia':
             try: hora_ideal = int(str(c_info['Hora_Sugerida']).split(':')[0])
             except: pass
-        costos.append(10 * var if h == hora_ideal else 100 * var)
+
+        # Costo base por asignar una clase
+        # Costo base por asignar una clase
+        costo_asignacion = 100 
+        
+        # 🚨 NUEVO: PENALIZACIÓN POR USAR LAS 7:00 AM
+        # Como es rarísimo abrir clases a esta hora, le cobramos una multa altísima al motor.
+        if h == 7:
+            costo_asignacion += 300  # Evitará las 7 AM como si fuera fuego.
+        
+        # Recompensa por cumplir la hora del Censo Estudiantil
+        if h == hora_ideal: 
+            costo_asignacion -= 30 
+            
+        # Recompensas por respetar la HISTORIA DE LA CLASE
+        if c_id in hist_stats:
+            if h == hist_stats[c_id]['h']:
+                costo_asignacion -= 60  # Mayor recompensa por respetar la HORA
+            if r_id == hist_stats[c_id]['r']:
+                costo_asignacion -= 20  # Recompensa media por respetar el AULA de la clase
+            if d_id == hist_stats[c_id]['d']:
+                costo_asignacion -= 10  # Recompensa baja por respetar al DOCENTE
+
+        # 👈 NUEVO: Recompensa por darle al DOCENTE su aula favorita general
+        if d_id in docente_aula_pref and r_id == docente_aula_pref[d_id]:
+            costo_asignacion -= 25 # Un premio jugoso por hacer sentir al ingeniero como en casa
+
+        # Evitamos que el costo sea negativo para no romper el minimizador matemático
+        costo_asignacion = max(1, costo_asignacion)
+        costos.append(costo_asignacion * var)
 
     model.Minimize(sum(costos))
     solver = cp_model.CpSolver()
@@ -124,7 +188,6 @@ def ejecutar_optimizador(engine):
             with engine.begin() as conn:
                 conn.execute(text("TRUNCATE TABLE oferta_academica_generada"))
                 for h in horarios_generados:
-                    # Si la clase es nocturna (17:00 en adelante) se asigna Lu-Vi
                     dias_asig = "Lu,Ma,Mi,Ju,Vi" if int(h['Hora_Inicio'][:2]) >= 17 else "Lu,Ma,Mi,Ju"
                     conn.execute(text("""
                         INSERT INTO oferta_academica_generada 
