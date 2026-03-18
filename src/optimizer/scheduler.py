@@ -10,20 +10,31 @@ def extraer_hora(valor_tiempo):
     return int(val_str.split(':')[0])
 
 def docente_puede_dar_clase(docente, hora_int):
+    # 1. Verificar si la hora está explícitamente bloqueada por el docente
     if pd.notna(docente['Horas_Bloqueadas']) and str(docente['Horas_Bloqueadas']).strip() != "":
         bloqueadas = [int(h.strip()) for h in str(docente['Horas_Bloqueadas']).split(',') if h.strip().isdigit()]
         if hora_int in bloqueadas: return False 
-    es_horario_virtual = hora_int >= 17 
-    if es_horario_virtual:
-        if docente.get('Acepta_Virtualidad', 0) == 0: return False 
-        ini_v = extraer_hora(docente['Hora_Inicio_Virtual']) or 17
-        fin_v = extraer_hora(docente['Hora_Fin_Virtual']) or 21
-        return ini_v <= hora_int < fin_v
-    else:
-        ini_p = extraer_hora(docente['Hora_Inicio_Turno'])
-        fin_p = extraer_hora(docente['Hora_Fin_Turno'])
-        if ini_p is None or fin_p is None: return False
-        return ini_p <= hora_int < fin_p
+
+    puede_presencial = False
+    puede_teledocencia = False
+
+    # 2. ¿La hora encaja en su turno PRESENCIAL?
+    ini_p = extraer_hora(docente['Hora_Inicio_Turno'])
+    fin_p = extraer_hora(docente['Hora_Fin_Turno'])
+    if ini_p is not None and fin_p is not None:
+        if ini_p <= hora_int < fin_p:
+            puede_presencial = True
+
+    # 3. ¿La hora encaja en su turno de TELEDOCENCIA? (Aplica a cualquier hora del día)
+    if docente.get('Acepta_Virtualidad', 0) == 1:
+        ini_v = extraer_hora(docente['Hora_Inicio_Virtual'])
+        fin_v = extraer_hora(docente['Hora_Fin_Virtual'])
+        if ini_v is not None and fin_v is not None:
+            if ini_v <= hora_int < fin_v:
+                puede_teledocencia = True
+
+    # Si el docente puede dar la clase en AL MENOS una modalidad a esa hora, lo habilitamos
+    return puede_presencial or puede_teledocencia
 
 def ejecutar_optimizador(engine):
     # 1. Cargar Docentes

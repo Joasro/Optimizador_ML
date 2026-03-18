@@ -558,7 +558,8 @@ def vista_jefe_departamento():
                 o.ID_Seccion, o.Hora_Inicio, o.Hora_Fin, 
                 e.Nombre_Espacio as Aula, e.ID_Espacio,
                 m.Codigo_Oficial, m.Nombre_Clase, m.Unidades_Valorativas,
-                d.Nombre as Docente, d.ID_Docente, o.Dias, o.Cupos_Maximos
+                d.Nombre as Docente, d.ID_Docente, o.Dias, o.Cupos_Maximos,
+                d.Acepta_Virtualidad, d.Hora_Inicio_Virtual, d.Hora_Fin_Virtual
             FROM oferta_academica_generada o
             JOIN Malla_Curricular m ON o.ID_Clase = m.ID_Clase
             JOIN espacios_fisicos e ON o.ID_Espacio = e.ID_Espacio
@@ -570,48 +571,78 @@ def vista_jefe_departamento():
             df_oferta = pd.DataFrame()
         
         if not df_oferta.empty:
+
             def limpiar_hora_visual(h):
                 h_str = str(h).strip()
                 if 'days' in h_str: return h_str.split('days')[1].strip()[:5]
                 return h_str[:5]
-                
+
             df_oferta['Hora_Inicio_Limpia'] = df_oferta['Hora_Inicio'].apply(limpiar_hora_visual)
             df_oferta['Hora_Fin_Limpia'] = df_oferta['Hora_Fin'].apply(limpiar_hora_visual)
             df_oferta['Hora_Rango'] = df_oferta['Hora_Inicio_Limpia'] + " - " + df_oferta['Hora_Fin_Limpia']
-            
+
+            # ==========================================
+            # LÓGICA DE COLORES DINÁMICOS POR DOCENTE
+            # ==========================================
             docentes_unicos = df_oferta['Docente'].unique()
-            
-            # 2. Definimos una paleta de colores variada y agradable a la vista
-            paleta_colores = [
-                '#4F8BF9', # Azul (Original)
-                '#28a745', # Verde
-                '#dc3545', # Rojo
-                '#ffc107', # Amarillo/Dorado
-                '#6f42c1', # Morado
-                '#fd7e14', # Naranja
-                '#17a2b8', # Turquesa
-                '#e83e8c', # Rosa
-                '#20c997', # Verde agua
-                '#6c757d'  # Gris
-            ]
-            
-            # 3. Creamos un diccionario para "casar" cada docente con un color de la paleta
-            # Usamos el módulo (%) por si hay más docentes que colores en la paleta
+            paleta_colores = ['#4F8BF9', '#28a745', '#dc3545', '#ffc107', '#6f42c1', '#fd7e14', '#17a2b8', '#e83e8c', '#20c997', '#6c757d']
             mapa_colores = {doc: paleta_colores[i % len(paleta_colores)] for i, doc in enumerate(docentes_unicos)}
-            
-            # 4. Agregamos el color que le toca a cada fila en el DataFrame
             df_oferta['Color_Docente'] = df_oferta['Docente'].map(mapa_colores)
 
             # ==========================================
-            # 2. Celda HTML Modificada
+            # LÓGICA DE MODALIDAD PROFUNDA (Corregida y a prueba de fallos)
             # ==========================================
-            # Inyectamos dinámicamente la variable df_oferta['Color_Docente'] en el border-left
+            def extraer_hora_segura(valor_tiempo):
+                """Limpia el formato raro de tiempo de Pandas/MySQL y saca solo la hora en entero"""
+                if pd.isna(valor_tiempo): return None
+                val_str = str(valor_tiempo).strip()
+                if val_str == '00:00:00' or val_str == '0' or val_str == 'None': return None
+                if 'days' in val_str:
+                    return int(val_str.split('days')[1].split(':')[0].strip())
+                return int(val_str.split(':')[0])
+
+            def determinar_modalidad_real(row):
+                try:
+                    # 1. Sacamos a qué hora se asignó la clase
+                    h_clase = extraer_hora_segura(row['Hora_Inicio'])
+                    if h_clase is None: return "🏫 Presencial"
+
+                    # 2. Nos aseguramos de que Acepta_Virtualidad sea evaluado como un número entero (1 o 0)
+                    acepta_virt = 0
+                    if pd.notna(row['Acepta_Virtualidad']):
+                        acepta_virt = int(row['Acepta_Virtualidad'])
+
+                    # 3. Si el ingeniero acepta Teledocencia, evaluamos sus horas
+                    if acepta_virt == 1:
+                        ini_v = extraer_hora_segura(row['Hora_Inicio_Virtual'])
+                        fin_v = extraer_hora_segura(row['Hora_Fin_Virtual'])
+                        
+                        # Verificamos que tenga configuradas horas válidas
+                        if ini_v is not None and fin_v is not None:
+                            # Si la clase cae dentro de las horas que él configuró para teledocencia:
+                            if ini_v <= h_clase < fin_v:
+                                return "📡 Teledocencia"
+                                
+                    # Si no se cumple lo de teledocencia, es su turno físico
+                    return "🏫 Presencial"
+                except Exception as e:
+                    # Si algo rarísimo pasa con los datos, lo mandamos a presencial
+                    return "🏫 Presencial" 
+
+            # Ejecutamos la función sobre todo el Dataframe fila por fila
+            df_oferta['Modalidad_Texto'] = df_oferta.apply(determinar_modalidad_real, axis=1)
+
+            # ==========================================
+            # Celda HTML Modificada (Diseño exacto solicitado)
+            # ==========================================
+            
             df_oferta['Info_Celda'] = (
                 "<div style='padding:8px; border-radius:5px; background-color:#f8f9fa; border-left:8px solid " + df_oferta['Color_Docente'] + "; margin-bottom:4px; font-size:12px; color:#333;'>"
                 "<b style='color:#004085;'>" + df_oferta['Codigo_Oficial'] + "</b> - " + df_oferta['Nombre_Clase'] + "<br>"
                 "👨‍🏫 <i>" + df_oferta['Docente'] + "</i><br>"
                 "⚡ " + df_oferta['Unidades_Valorativas'].astype(str) + " UV | 📅 <b>" + df_oferta['Dias'] + "</b><br>"
-                "<span style='color:#28a745; font-weight:bold;'>👥 Cupos: " + df_oferta['Cupos_Maximos'].astype(str) + "</span>"
+                "<span style='color:#28a745; font-weight:bold;'>👥 Cupos: " + df_oferta['Cupos_Maximos'].astype(str) + "</span><br>"
+                "<span style='font-weight:bold; color:#495057;'>" + df_oferta['Modalidad_Texto'] + "</span>"
                 "</div>"
             )
 

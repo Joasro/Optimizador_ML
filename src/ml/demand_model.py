@@ -1,6 +1,7 @@
 import pandas as pd
 import numpy as np
 import os
+from sklearn.ensemble import RandomForestClassifier  # <-- AGREGADO: El motor de IA
 
 def predecir_demanda_estricta(engine):
     # 1. Extracción de Datos
@@ -39,7 +40,41 @@ def predecir_demanda_estricta(engine):
             elif not es_clase_aprobada(p, aprobadas): return False
         return True
 
-    print("🧠 Motor 1 (Predictivo) Iniciado: Analizando historiales sin depender del censo...")
+    print("🧠 Motor 1 (Predictivo) Iniciado: Entrenando modelo Random Forest...")
+    
+    # ==========================================
+    # NUEVO: ENTRENAMIENTO DEL MODELO MACHINE LEARNING
+    # ==========================================
+    # 1. Feature Engineering (Métricas de la vida real)
+    dificultad_clase = df_historial.groupby('ID_Clase')['Estado'].apply(lambda x: (x == 'Aprobado').mean()).to_dict()
+    rendimiento_alumno = df_historial.groupby('Hash_Cuenta')['Estado'].apply(lambda x: (x == 'Aprobado').mean()).to_dict()
+
+    # 2. Generación de Set de Entrenamiento (Simulando el "Sesgo de Optimismo" del censo)
+    X_train = []
+    y_train = []
+    
+    for _ in range(1000):
+        rend_sim = np.random.uniform(0.2, 1.0)
+        dif_sim = np.random.uniform(0.3, 0.9)
+        censo_sim = np.random.choice([0, 1])
+        
+        prob_real = 0.3
+        if censo_sim == 1:
+            # Si la pidió, calculamos si realmente la va a llevar basada en su rendimiento
+            prob_real = 0.95 * rend_sim * (1.2 - dif_sim) 
+        else:
+            prob_real = 0.40 * rend_sim
+            
+        prob_real = min(1.0, max(0.0, prob_real))
+        
+        X_train.append([rend_sim, dif_sim, censo_sim])
+        y_train.append(1 if np.random.random() < prob_real else 0)
+
+    # 3. Entrenamiento del Clasificador
+    modelo_ml = RandomForestClassifier(n_estimators=100, max_depth=5, random_state=42)
+    modelo_ml.fit(X_train, y_train)
+    print("✅ Modelo entrenado. Calculando probabilidades dinámicas por estudiante...")
+    # ==========================================
     
     # 2. Análisis Predictivo (El corazón de tu ML)
     prediccion_actual = []
@@ -50,6 +85,7 @@ def predecir_demanda_estricta(engine):
         plan = est['Plan_Estudio']
         aprobadas = aprobadas_totales.get(hash_est, set())
         
+        perfil_alumno = rendimiento_alumno.get(hash_est, 0.70) # <-- Le pasamos el perfil a la IA
         uv_actuales = df_historial[(df_historial['Hash_Cuenta'] == hash_est) & (df_historial['Estado'] == 'Aprobado')]['Unidades_Valorativas'].sum()
         clases_plan = df_malla[(df_malla['Plan_Perteneciente'] == plan) & (df_malla['Codigo_Oficial'].str.startswith(('IS', 'ISC', 'IE')))]
         
@@ -61,13 +97,17 @@ def predecir_demanda_estricta(engine):
                 # Validar si el alumno la pidió en el censo
                 en_censo = 1 if not df_censo[(df_censo['Hash_Cuenta'] == hash_est) & (df_censo['ID_Clase'] == clase['ID_Clase'])].empty else 0
                 
-                # LA MAGIA DEL MOTOR 1 (Probabilidades)
-                # Base de probabilidad por historial (ej. 65% de que la lleve)
-                prob_ml = 0.65 
+                perfil_clase = dificultad_clase.get(clase['ID_Clase'], 0.60) # <-- Le pasamos el perfil a la IA
                 
-                # Si está en el censo, la probabilidad sube al 100%
-                if en_censo == 1:
-                    prob_ml = 1.0 
+                # ==========================================
+                # LA MAGIA DEL MOTOR 1 (Random Forest en acción)
+                # ==========================================
+                # Le pasamos las 3 variables al modelo: Rendimiento, Dificultad, ¿Llenó el censo?
+                caracteristicas = np.array([[perfil_alumno, perfil_clase, en_censo]])
+                
+                # La IA nos devuelve un porcentaje exacto (Ej: 0.82) en lugar de un número estático
+                prob_ml = modelo_ml.predict_proba(caracteristicas)[0][1] 
+                # ==========================================
                 
                 prediccion_actual.append({
                     'ID_Clase': clase['ID_Clase'],
@@ -89,21 +129,13 @@ def predecir_demanda_estricta(engine):
     # ==========================================
     # 🛑 REGLA DE NEGOCIO: MÍNIMO DE ALUMNOS Y SECCIONES ÚNICAS
     # ==========================================
-    # Como tu muestra de prueba es de 70 alumnos (1/3 de la población de 222),
-    # el equivalente estadístico de 5 alumnos reales es exigir 2 o 3 alumnos en la prueba.
     MINIMO_ALUMNOS = 5 
+    SECCIONES_UNICAS = ['IS-115', 'IS-906', 'IS-802']
     
-    # Lista de clases que SIEMPRE se abren aunque haya 1 solo alumno (Agrega las que necesites)
-    SECCIONES_UNICAS = ['IS-115', 'IS-906', 'IS-802'] # Ej: Seminario, Tópicos, etc.
-    
-    # Lógica: 
-    # 1. Si es sección única, se abre si tiene > 0 alumnos.
-    # 2. Si es clase normal, se abre solo si alcanza el MINIMO_ALUMNOS.
     condicion_unica = (demanda_final['Codigo_Oficial'].isin(SECCIONES_UNICAS)) & (demanda_final['Cupos_Estimados'] > 0)
     condicion_normal = (~demanda_final['Codigo_Oficial'].isin(SECCIONES_UNICAS)) & (demanda_final['Cupos_Estimados'] >= MINIMO_ALUMNOS)
     
     demanda_final = demanda_final[condicion_unica | condicion_normal]
-    # ==========================================
     
     # 3. Extracción de la hora ideal del censo (Si existe)
     if not df_censo.empty and 'Jornada_Preferencia' in df_censo.columns:
