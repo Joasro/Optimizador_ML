@@ -579,18 +579,42 @@ def vista_jefe_departamento():
             df_oferta['Hora_Fin_Limpia'] = df_oferta['Hora_Fin'].apply(limpiar_hora_visual)
             df_oferta['Hora_Rango'] = df_oferta['Hora_Inicio_Limpia'] + " - " + df_oferta['Hora_Fin_Limpia']
             
+            docentes_unicos = df_oferta['Docente'].unique()
+            
+            # 2. Definimos una paleta de colores variada y agradable a la vista
+            paleta_colores = [
+                '#4F8BF9', # Azul (Original)
+                '#28a745', # Verde
+                '#dc3545', # Rojo
+                '#ffc107', # Amarillo/Dorado
+                '#6f42c1', # Morado
+                '#fd7e14', # Naranja
+                '#17a2b8', # Turquesa
+                '#e83e8c', # Rosa
+                '#20c997', # Verde agua
+                '#6c757d'  # Gris
+            ]
+            
+            # 3. Creamos un diccionario para "casar" cada docente con un color de la paleta
+            # Usamos el módulo (%) por si hay más docentes que colores en la paleta
+            mapa_colores = {doc: paleta_colores[i % len(paleta_colores)] for i, doc in enumerate(docentes_unicos)}
+            
+            # 4. Agregamos el color que le toca a cada fila en el DataFrame
+            df_oferta['Color_Docente'] = df_oferta['Docente'].map(mapa_colores)
+
             # ==========================================
-            # 2. Celda HTML (Sin saltos de línea para no romper Streamlit)
+            # 2. Celda HTML Modificada
             # ==========================================
+            # Inyectamos dinámicamente la variable df_oferta['Color_Docente'] en el border-left
             df_oferta['Info_Celda'] = (
-                "<div style='padding:8px; border-radius:5px; background-color:#f8f9fa; border-left:4px solid #4F8BF9; margin-bottom:4px; font-size:12px; color:#333;'>"
+                "<div style='padding:8px; border-radius:5px; background-color:#f8f9fa; border-left:8px solid " + df_oferta['Color_Docente'] + "; margin-bottom:4px; font-size:12px; color:#333;'>"
                 "<b style='color:#004085;'>" + df_oferta['Codigo_Oficial'] + "</b> - " + df_oferta['Nombre_Clase'] + "<br>"
                 "👨‍🏫 <i>" + df_oferta['Docente'] + "</i><br>"
                 "⚡ " + df_oferta['Unidades_Valorativas'].astype(str) + " UV | 📅 <b>" + df_oferta['Dias'] + "</b><br>"
                 "<span style='color:#28a745; font-weight:bold;'>👥 Cupos: " + df_oferta['Cupos_Maximos'].astype(str) + "</span>"
                 "</div>"
             )
-            
+
             # ==========================================
             # 3. Pivot Table Inmune a Crasheos
             # ==========================================

@@ -1,25 +1,25 @@
 ID_Clase,Codigo_Oficial,Nombre_Clase,ID_Area,Probabilidad_Final,Cupos_Estimados,Hora_Sugerida
 33,IS-512,Sistemas Operativos II,11.0,5.8500000000000005,6,Sin preferencia
-34,IS-601,Base de Datos II,2.0,5.2,6,Sin preferencia
-38,IS-711,Diseño Digital,10.0,7.15,8,Sin preferencia
-41,IS-811,Seguridad Informática,6.0,7.800000000000001,8,Sin preferencia
-43,IS-702,Análisis y Diseño de Sistemas,4.0,9.75,10,Sin preferencia
-44,IS-721,Contabilidad I,5.0,8.450000000000001,9,Sin preferencia
+34,IS-601,Base de Datos II,2.0,5.8500000000000005,6,Sin preferencia
+38,IS-711,Diseño Digital,10.0,8.450000000000001,9,Sin preferencia
+41,IS-811,Seguridad Informática,6.0,9.1,10,Sin preferencia
+43,IS-702,Análisis y Diseño de Sistemas,4.0,10.4,11,Sin preferencia
+44,IS-721,Contabilidad I,5.0,9.75,10,Sin preferencia
 45,IS-903,Auditoría Informática,6.0,6.5,7,Sin preferencia
-46,IS-701,Inteligencia Artificial,7.0,11.700000000000001,12,Sin preferencia
-47,IS-802,Ingeniería del Software,4.0,4.55,5,Sin preferencia
-48,IS-820,Finanzas Administrativas,5.0,6.5,7,Sin preferencia
-49,IS-902,Industria del Software,4.0,7.5,8,09:00:00
+46,IS-701,Inteligencia Artificial,7.0,13.0,13,Sin preferencia
+47,IS-802,Ingeniería del Software,4.0,5.2,6,Sin preferencia
+48,IS-820,Finanzas Administrativas,5.0,7.15,8,Sin preferencia
+49,IS-902,Industria del Software,4.0,8.15,9,09:00:00
 50,IS-904,Gerencia Informática,5.0,5.2,6,Sin preferencia
 51,IS-906,Topicos Especiales y Avanzados,3.0,5.8500000000000005,6,Sin preferencia
-53,IS-910,Teoría de la Simulación,7.0,27.3,28,Sin preferencia
-54,IS-911,Microprocesadores,10.0,19.5,20,Sin preferencia
-55,IS-912,Sistemas Expertos,7.0,9.1,10,Sin preferencia
-56,IS-913,Diseño de Compiladores,1.0,9.1,10,Sin preferencia
+53,IS-910,Teoría de la Simulación,7.0,29.25,30,Sin preferencia
+54,IS-911,Microprocesadores,10.0,22.1,23,Sin preferencia
+55,IS-912,Sistemas Expertos,7.0,9.75,10,Sin preferencia
+56,IS-913,Diseño de Compiladores,1.0,11.05,12,Sin preferencia
 57,IS-914,Liderazgo para el Cambio,5.0,4.55,5,Sin preferencia
 116,IS-115,Seminario de Investigación,20.0,3.9000000000000004,4,Sin preferencia
 117,ISC-101,Introducción a la Ingeniería en Sistemas Computacionales,12.0,4.55,5,Sin preferencia
-122,ISC-102,Programación Estructurada,12.0,8.15,9,07:00:00
+122,ISC-102,Programación Estructurada,12.0,10.1,11,07:00:00
 134,ISC-204,Paradigmas de Programación,12.0,13.65,14,Sin preferencia
 141,IE-326,Instalaciones Eléctricas para Centros de Datos,18.0,9.1,10,Sin preferencia
 142,ISC-321,Fundamentos de Base de Datos,16.0,5.8500000000000005,6,Sin preferencia
