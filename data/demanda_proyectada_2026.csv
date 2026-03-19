@@ -1,18 +1,42 @@
-ID_Clase,Codigo_Oficial,Nombre_Clase,ID_Area,Probabilidad_Final,Cupos_Estimados,Hora_Sugerida
-38,IS-711,Diseño Digital,10.0,3.529616415500641,4,Sin preferencia
-41,IS-811,Seguridad Informática,6.0,2.519952803850174,3,Sin preferencia
-43,IS-702,Análisis y Diseño de Sistemas,4.0,2.7817207723855972,3,Sin preferencia
-44,IS-721,Contabilidad I,5.0,3.446818307042122,4,Sin preferencia
-45,IS-903,Auditoría Informática,6.0,4.302816689014435,5,Sin preferencia
-46,IS-701,Inteligencia Artificial,7.0,3.2159930020570755,4,Sin preferencia
-47,IS-802,Ingeniería del Software,4.0,0.9478024244308472,1,Sin preferencia
-49,IS-902,Industria del Software,4.0,3.0856805741786957,4,Sin preferencia
-50,IS-904,Gerencia Informática,5.0,2.302816689014435,3,Sin preferencia
-51,IS-906,Topicos Especiales y Avanzados,3.0,6.0,6,Sin preferencia
-53,IS-910,Teoría de la Simulación,7.0,5.008520498871803,6,Sin preferencia
-54,IS-911,Microprocesadores,10.0,15.311337187886238,16,Sin preferencia
-55,IS-912,Sistemas Expertos,7.0,9.434272229671478,10,Sin preferencia
-56,IS-913,Diseño de Compiladores,1.0,6.181024760007858,7,Sin preferencia
-57,IS-914,Liderazgo para el Cambio,5.0,2.8685444593429565,3,Sin preferencia
-116,IS-115,Seminario de Investigación,20.0,7.0,7,Sin preferencia
-117,ISC-101,Introducción a la Ingeniería en Sistemas Computacionales,12.0,,16,Sin preferencia
+ID_Clase,Codigo_Oficial,Nombre_Clase,ID_Area,Cupos_Estimados,Hora_Sugerida
+54,IS-911,Microprocesadores,10.0,9,Sin preferencia
+46,IS-701,Inteligencia Artificial,7.0,5,Sin preferencia
+53,IS-910,Teoría de la Simulación,7.0,5,Sin preferencia
+44,IS-721,Contabilidad I,5.0,4,Sin preferencia
+43,IS-702,Análisis y Diseño de Sistemas,4.0,4,Sin preferencia
+56,IS-913,Diseño de Compiladores,1.0,4,Sin preferencia
+45,IS-903,Auditoría Informática,6.0,3,Sin preferencia
+41,IS-811,Seguridad Informática,6.0,3,Sin preferencia
+38,IS-711,Diseño Digital,10.0,3,Sin preferencia
+55,IS-912,Sistemas Expertos,7.0,3,Sin preferencia
+50,IS-904,Gerencia Informática,5.0,2,Sin preferencia
+47,IS-802,Ingeniería del Software,4.0,2,Sin preferencia
+48,IS-820,Finanzas Administrativas,5.0,2,Sin preferencia
+34,IS-601,Base de Datos II,2.0,2,Sin preferencia
+33,IS-512,Sistemas Operativos II,11.0,2,Sin preferencia
+26,IS-411,Electrónica para Ing. en Sistemas,10.0,2,Sin preferencia
+36,IS-513,Lenguajes de Programación,1.0,2,Sin preferencia
+122,ISC-102,Programación Estructurada,12.0,2,Sin preferencia
+51,IS-906,Topicos Especiales y Avanzados,3.0,2,Sin preferencia
+116,IS-115,Seminario de Investigación,20.0,2,Sin preferencia
+57,IS-914,Liderazgo para el Cambio,5.0,2,Sin preferencia
+49,IS-902,Industria del Software,4.0,2,Sin preferencia
+25,IS-410,Programación Orientada a Objetos,1.0,1,Sin preferencia
+32,IS-511,Redes de Datos I,21.0,1,Sin preferencia
+20,IS-311,Circuitos Eléctricos para Ingeniería en Sistemas,10.0,1,Sin preferencia
+31,IS-510,Instalaciones Eléctricas,10.0,1,Sin preferencia
+39,IS-602,Sistema de Información,4.0,1,Sin preferencia
+52,IS-905,Economía Digital,8.0,1,Sin preferencia
+117,ISC-101,Introducción a la Ingeniería en Sistemas Computacionales,12.0,17,Sin preferencia
+134,ISC-204,Paradigmas de Programación,12.0,1,Sin preferencia
+139,ISC-211,Estructuras de Datos,14.0,1,Sin preferencia
+141,IE-326,Instalaciones Eléctricas para Centros de Datos,18.0,1,Sin preferencia
+142,ISC-321,Fundamentos de Base de Datos,16.0,1,Sin preferencia
+143,ISC-351,Contabilidad Financiera,13.0,1,Sin preferencia
+144,ISC-331,Redes de Datos I,21.0,1,Sin preferencia
+149,ISC-334,Sistemas Operativos II,18.0,1,Sin preferencia
+150,ISC-305,Programación Web,12.0,1,Sin preferencia
+152,ISC-306,Análisis de Requerimientos,12.0,1,Sin preferencia
+153,ISC-336,Diseño Digital,18.0,1,Sin preferencia
+156,ISC-435,Administración de Servidores,18.0,1,Sin preferencia
+163,ISC-423,Ciencia de Datos,14.0,1,Sin preferencia

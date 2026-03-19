@@ -3,11 +3,13 @@ import os
 import streamlit.components.v1 as components
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from app.student_portal import vista_estudiante
+from app.teacher_portal import vista_docente
 import datetime
 import streamlit as st
 import hashlib
 import pandas as pd
 from config.db_connection import get_connection
+
 
 st.set_page_config(page_title="Optimizador Académico UNAH", layout="wide", page_icon="🎓")
 
@@ -1095,7 +1097,9 @@ def main():
                         conn.close()
     else:
         if st.session_state['user_role'] == 'Admin':
-            vista_jefe_departamento()
+         vista_jefe_departamento()
+        elif st.session_state['user_role'] == 'Docente':
+            vista_docente() # <--- LA NUEVA RUTA
         else:
             vista_estudiante()
 
