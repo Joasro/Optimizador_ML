@@ -33,7 +33,6 @@ def ya_aprobo_equivalencia(codigo_nueva, clases_aprobadas, mapa_codes):
     if codigo_nueva in EQUIVALENCIAS:
         for eq_code in EQUIVALENCIAS[codigo_nueva]:
             eq_ids = mapa_codes.get(eq_code, [])
-            # clases_aprobadas ahora es un dict, así que el operador 'in' busca en sus llaves (IDs)
             if any(eq_id in clases_aprobadas for eq_id in eq_ids):
                 return True
     return False
@@ -67,7 +66,6 @@ def evaluar_prerrequisitos_simulador(req_text, nombre_clase, ids_aprobados, tota
             
     return True
 
-# Función auxiliar para comparar períodos (Ej: '2-2025' -> 20252)
 def valor_periodo(periodo_str):
     if not periodo_str: return 0
     p, a = map(int, periodo_str.split('-'))
@@ -81,12 +79,8 @@ def ejecutar():
     
     cursor = conn.cursor(dictionary=True)
     
-    print("🧹 Limpiando base de datos...")
-    cursor.execute("SET FOREIGN_KEY_CHECKS = 0;")
-    cursor.execute("TRUNCATE TABLE Historial_Academico;")
-    cursor.execute("TRUNCATE TABLE Estudiantes;")
-    cursor.execute("DELETE FROM Usuarios WHERE Rol = 'Estudiante';")
-    cursor.execute("SET FOREIGN_KEY_CHECKS = 1;")
+    # 🛑 SE ELIMINÓ EL BLOQUE DE LIMPIEZA (TRUNCATE/DELETE) QUE ESTABA AQUÍ 🛑
+    # Ahora el sistema procederá directamente a insertar sin borrar lo anterior.
 
     print("📖 Analizando Malla Curricular global...")
     cursor.execute("""
@@ -96,6 +90,7 @@ def ejecutar():
     """)
     malla = cursor.fetchall()
 
+    # Perfiles de estudiantes a crear
     perfiles = [
         {'plan': '2021', 'n': 10, 'inicio': 2025},
         {'plan': '2021', 'n': 15, 'inicio': 2024},
@@ -104,10 +99,13 @@ def ejecutar():
         {'plan': '2021', 'n': 17, 'inicio': 2021} 
     ]
 
-    print("🚀 Simulando trayectorias académicas hasta el actual IPAC 2026...")
+    print("🚀 Agregando nuevos estudiantes y simulando trayectorias...")
     
     pass_hash = hash_data('admin123') 
-    est_idx = 1
+    
+    # 💡 AJUSTE: Buscamos el último ID de estudiante para no duplicar nombres
+    cursor.execute("SELECT COUNT(*) as total FROM Usuarios WHERE Rol = 'Estudiante'")
+    est_idx = cursor.fetchone()['total'] + 1
     
     mapa_codes = {}
     for c in malla:
@@ -121,126 +119,97 @@ def ejecutar():
 
     for p in perfiles:
         for _ in range(p['n']):
+            # Generar datos únicos
             num_cuenta = (p['inicio'] * 100000) + est_idx
             correo_est = f"estudiante{num_cuenta}@unah.hn"
             nombre_est = f"Estudiante {est_idx}"
             cuenta_hash = hash_data(correo_est) 
             
-            cursor.execute("""
-                INSERT INTO Usuarios (Hash_Cuenta, Nombre_Completo, Correo_Institucional, Contrasena, Rol) 
-                VALUES (%s, %s, %s, %s, 'Estudiante')
-            """, (cuenta_hash, nombre_est, correo_est, pass_hash))
-            
-            cursor.execute("""
-                INSERT INTO Estudiantes (Hash_Cuenta, Plan_Estudio, Ano_Ingreso) 
-                VALUES (%s, %s, %s)
-            """, (cuenta_hash, p['plan'], p['inicio']))
-            
-            # ¡AHORA ES UN DICCIONARIO! Guardará el ID de la clase y el período en que la pasó
-            clases_aprobadas = {} 
-            total_uv_acumuladas = 0
-            ano_sim = p['inicio']
-            periodo_sim = 1
-            plan_actual = p['plan']
-            
-            while ano_sim < 2026 or (ano_sim == 2026 and periodo_sim <= 1):
+            try:
+                cursor.execute("""
+                    INSERT INTO Usuarios (Hash_Cuenta, Nombre_Completo, Correo_Institucional, Contrasena, Rol) 
+                    VALUES (%s, %s, %s, %s, 'Estudiante')
+                """, (cuenta_hash, nombre_est, correo_est, pass_hash))
                 
-                # --- REGLA OFICIAL DE TRANSICIÓN: IPAC 2026 ---
-                if plan_actual in ['2021', '2024'] and ano_sim == 2026 and periodo_sim == 1:
-                    
-                    # Obtenemos en qué período pasó Circuitos y POO (si no las pasó, es None)
-                    per_circuitos = next((clases_aprobadas[i] for i in ids_circuitos if i in clases_aprobadas), None)
-                    per_poo = next((clases_aprobadas[i] for i in ids_poo if i in clases_aprobadas), None)
-                    
-                    paso_ambas = (per_circuitos is not None) and (per_poo is not None)
-                    
-                    if not paso_ambas:
-                        # Si no pasó alguna, cambio obligatorio al nuevo plan
-                        hacer_cambio = True
-                    else:
-                        # Pasó ambas. ¿Cuándo pasó la última de las dos?
-                        val_circ = valor_periodo(per_circuitos)
-                        val_poo = valor_periodo(per_poo)
-                        max_val = max(val_circ, val_poo)
+                cursor.execute("""
+                    INSERT INTO Estudiantes (Hash_Cuenta, Plan_Estudio, Ano_Ingreso) 
+                    VALUES (%s, %s, %s)
+                """, (cuenta_hash, p['plan'], p['inicio']))
+                
+                clases_aprobadas = {} 
+                total_uv_acumuladas = 0
+                ano_sim = p['inicio']
+                periodo_sim = 1
+                plan_actual = p['plan']
+                
+                while ano_sim < 2026 or (ano_sim == 2026 and periodo_sim <= 1):
+                    # Lógica de transición de plan IPAC 2026
+                    if plan_actual in ['2021', '2024'] and ano_sim == 2026 and periodo_sim == 1:
+                        per_circuitos = next((clases_aprobadas[i] for i in ids_circuitos if i in clases_aprobadas), None)
+                        per_poo = next((clases_aprobadas[i] for i in ids_poo if i in clases_aprobadas), None)
                         
-                        # Si la última de las dos la aprobó en 2025-2 (20252) o 2025-3 (20253):
-                        if max_val >= 20252:
-                            hacer_cambio = random.random() < 0.30 # Tienen la opción
+                        if not (per_circuitos and per_poo):
+                            hacer_cambio = True
                         else:
-                            # Las aprobó en 2025-1 o antes. Se quedan SI O SI en el viejo.
-                            hacer_cambio = False
-                        
-                    if hacer_cambio:
-                        plan_actual = '2025'
-                        cursor.execute("""
-                            UPDATE Estudiantes SET Plan_Estudio = '2025' WHERE Hash_Cuenta = %s
-                        """, (cuenta_hash,))
-                
-                clases_del_plan = [c for c in malla if c['Plan_Perteneciente'] == plan_actual]
-                disponibles = []
-                
-                for c in clases_del_plan:
-                    codigo = c['Codigo_Oficial'].strip().upper()
+                            max_val = max(valor_periodo(per_circuitos), valor_periodo(per_poo))
+                            hacer_cambio = (random.random() < 0.30) if max_val >= 20252 else False
+                            
+                        if hacer_cambio:
+                            plan_actual = '2025'
+                            cursor.execute("UPDATE Estudiantes SET Plan_Estudio = '2025' WHERE Hash_Cuenta = %s", (cuenta_hash,))
                     
-                    if c['ID_Clase'] in clases_aprobadas:
-                        continue
-                        
-                    if plan_actual == '2025' and ya_aprobo_equivalencia(codigo, clases_aprobadas, mapa_codes):
-                        continue
-                        
-                    if evaluar_prerrequisitos_simulador(c['Prerrequisitos'], c['Nombre_Clase'], clases_aprobadas, total_uv_acumuladas, mapa_codes):
-                        disponibles.append(c)
-                
-                if not disponibles: 
-                    break 
-                
-                is_clases = [c for c in disponibles if c['Codigo_Oficial'].upper().startswith(('IS', 'ISC'))]
-                mm_fs_clases = [c for c in disponibles if c['Codigo_Oficial'].upper().startswith(('MM', 'FS'))]
-                otras_clases = [c for c in disponibles if not c['Codigo_Oficial'].upper().startswith(('IS', 'ISC', 'MM', 'FS'))]
-                
-                random.shuffle(is_clases)
-                random.shuffle(mm_fs_clases)
-                random.shuffle(otras_clases)
-                
-                disponibles_priorizados = is_clases + mm_fs_clases + otras_clases
-                
-                carga_periodo = []
-                uv_periodo = 0
-                max_clases_periodo = random.randint(3, 4)
-                
-                for d in disponibles_priorizados:
-                    if uv_periodo + d['Unidades_Valorativas'] <= 18:
-                        carga_periodo.append(d)
-                        uv_periodo += d['Unidades_Valorativas']
-                    if len(carga_periodo) >= max_clases_periodo: 
-                        break
-                
-                if carga_periodo:
-                    periodo_str = f"{periodo_sim}-{ano_sim}"
-                    for c in carga_periodo:
-                        exito = random.random() < 0.82
-                        estado = 'Aprobado' if exito else 'Reprobado'
-                        
-                        cursor.execute("""
-                            INSERT INTO Historial_Academico (Hash_Cuenta, ID_Clase, Estado, Periodo_Cursado) 
-                            VALUES (%s, %s, %s, %s)
-                        """, (cuenta_hash, c['ID_Clase'], estado, periodo_str))
-                        
-                        if estado == 'Aprobado':
-                            # ¡Guardamos el período en el diccionario!
-                            clases_aprobadas[c['ID_Clase']] = periodo_str
-                            total_uv_acumuladas += c['Unidades_Valorativas']
+                    clases_del_plan = [c for c in malla if c['Plan_Perteneciente'] == plan_actual]
+                    disponibles = []
+                    
+                    for c in clases_del_plan:
+                        if c['ID_Clase'] in clases_aprobadas: continue
+                        if plan_actual == '2025' and ya_aprobo_equivalencia(c['Codigo_Oficial'].strip().upper(), clases_aprobadas, mapa_codes): continue
+                        if evaluar_prerrequisitos_simulador(c['Prerrequisitos'], c['Nombre_Clase'], clases_aprobadas, total_uv_acumuladas, mapa_codes):
+                            disponibles.append(c)
+                    
+                    if not disponibles: break 
+                    
+                    is_clases = [c for c in disponibles if c['Codigo_Oficial'].upper().startswith(('IS', 'ISC'))]
+                    mm_fs_clases = [c for c in disponibles if c['Codigo_Oficial'].upper().startswith(('MM', 'FS'))]
+                    otras_clases = [c for c in disponibles if not c['Codigo_Oficial'].upper().startswith(('IS', 'ISC', 'MM', 'FS'))]
+                    
+                    random.shuffle(is_clases)
+                    random.shuffle(mm_fs_clases)
+                    random.shuffle(otras_clases)
+                    
+                    carga_periodo = []
+                    uv_periodo = 0
+                    max_clases_periodo = random.randint(3, 4)
+                    
+                    for d in (is_clases + mm_fs_clases + otras_clases):
+                        if uv_periodo + d['Unidades_Valorativas'] <= 18:
+                            carga_periodo.append(d)
+                            uv_periodo += d['Unidades_Valorativas']
+                        if len(carga_periodo) >= max_clases_periodo: break
+                    
+                    if carga_periodo:
+                        periodo_str = f"{periodo_sim}-{ano_sim}"
+                        for c in carga_periodo:
+                            estado = 'Aprobado' if random.random() < 0.82 else 'Reprobado'
+                            cursor.execute("INSERT INTO Historial_Academico (Hash_Cuenta, ID_Clase, Estado, Periodo_Cursado) VALUES (%s, %s, %s, %s)", 
+                                         (cuenta_hash, c['ID_Clase'], estado, periodo_str))
+                            if estado == 'Aprobado':
+                                clases_aprobadas[c['ID_Clase']] = periodo_str
+                                total_uv_acumuladas += c['Unidades_Valorativas']
 
-                periodo_sim += 1
-                if periodo_sim > 3:
-                    periodo_sim = 1
-                    ano_sim += 1
-            
-            est_idx += 1
+                    periodo_sim += 1
+                    if periodo_sim > 3:
+                        periodo_sim = 1
+                        ano_sim += 1
+                
+                est_idx += 1
+            except Exception as e:
+                print(f"⚠️ Saltando estudiante {est_idx} por posible duplicado o error: {e}")
+                continue
 
     conn.commit()
     conn.close()
-    print("✅ Generación completada. Base de datos lista para entrenar el modelo ML.")
+    print("✅ Proceso completado. Se han añadido nuevos estudiantes a la base de datos existente.")
 
 if __name__ == '__main__':
     ejecutar()
