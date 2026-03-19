@@ -90,7 +90,7 @@ def vista_jefe_departamento():
 
     # --- DICCIONARIO DE EQUIVALENCIAS ---
     EQUIVALENCIAS = {
-        'ISC-101': ['IS-110', 'MM-314'], 'ISC-102': ['IS-210'], 'ISC-103': ['IS-410'],
+        'ISC-101': ['IS-110'], 'ISC-102': ['IS-210'], 'ISC-103': ['IS-410'],
         'ISC-211': ['IS-310'], 'ISC-321': ['IS-501'], 'ISC-422': ['IS-601'],
         'ISC-341': ['IS-602'], 'ISC-306': ['IS-702'], 'IE-326': ['IS-311', 'IS-510'],
         'ISC-331': ['IS-511'], 'ISC-332': ['IS-611'], 'ISC-333': ['IS-412'],
@@ -635,7 +635,6 @@ def vista_jefe_departamento():
             # ==========================================
             # Celda HTML Modificada (Diseño exacto solicitado)
             # ==========================================
-            
             df_oferta['Info_Celda'] = (
                 "<div style='padding:8px; border-radius:5px; background-color:#f8f9fa; border-left:8px solid " + df_oferta['Color_Docente'] + "; margin-bottom:4px; font-size:12px; color:#333;'>"
                 "<b style='color:#004085;'>" + df_oferta['Codigo_Oficial'] + "</b> - " + df_oferta['Nombre_Clase'] + "<br>"

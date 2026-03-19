@@ -1,19 +1,18 @@
 ID_Clase,Codigo_Oficial,Nombre_Clase,ID_Area,Probabilidad_Final,Cupos_Estimados,Hora_Sugerida
-38,IS-711,Diseño Digital,10.0,5.835280065541295,6,Sin preferencia
-41,IS-811,Seguridad Informática,6.0,6.137595659161956,7,Sin preferencia
-43,IS-702,Análisis y Diseño de Sistemas,4.0,7.7046589544864315,8,Sin preferencia
-44,IS-721,Contabilidad I,5.0,5.248834168253469,6,Sin preferencia
-45,IS-903,Auditoría Informática,6.0,6.317817608364143,7,Sin preferencia
-46,IS-701,Inteligencia Artificial,7.0,8.791809097263053,9,Sin preferencia
-47,IS-802,Ingeniería del Software,4.0,3.122831637286824,4,Sin preferencia
-49,IS-902,Industria del Software,4.0,6.419460902034049,7,Sin preferencia
-51,IS-906,Topicos Especiales y Avanzados,3.0,3.8243610460231094,4,Sin preferencia
-53,IS-910,Teoría de la Simulación,7.0,10.06338770877883,11,Sin preferencia
-54,IS-911,Microprocesadores,10.0,13.13326620990779,14,Sin preferencia
-55,IS-912,Sistemas Expertos,7.0,6.066392101182489,7,Sin preferencia
-56,IS-913,Diseño de Compiladores,1.0,10.016719534074127,11,Sin preferencia
-57,IS-914,Liderazgo para el Cambio,5.0,4.866427815141743,5,Sin preferencia
-116,IS-115,Seminario de Investigación,20.0,4.3593668986391405,5,Sin preferencia
-117,ISC-101,Introducción a la Ingeniería en Sistemas Computacionales,12.0,4.343588968355908,5,Sin preferencia
-122,ISC-102,Programación Estructurada,12.0,5.102176198891873,6,Sin preferencia
-134,ISC-204,Paradigmas de Programación,12.0,8.336205455542604,9,Sin preferencia
+38,IS-711,Diseño Digital,10.0,3.529616415500641,4,Sin preferencia
+41,IS-811,Seguridad Informática,6.0,2.519952803850174,3,Sin preferencia
+43,IS-702,Análisis y Diseño de Sistemas,4.0,2.7817207723855972,3,Sin preferencia
+44,IS-721,Contabilidad I,5.0,3.446818307042122,4,Sin preferencia
+45,IS-903,Auditoría Informática,6.0,4.302816689014435,5,Sin preferencia
+46,IS-701,Inteligencia Artificial,7.0,3.2159930020570755,4,Sin preferencia
+47,IS-802,Ingeniería del Software,4.0,0.9478024244308472,1,Sin preferencia
+49,IS-902,Industria del Software,4.0,3.0856805741786957,4,Sin preferencia
+50,IS-904,Gerencia Informática,5.0,2.302816689014435,3,Sin preferencia
+51,IS-906,Topicos Especiales y Avanzados,3.0,6.0,6,Sin preferencia
+53,IS-910,Teoría de la Simulación,7.0,5.008520498871803,6,Sin preferencia
+54,IS-911,Microprocesadores,10.0,15.311337187886238,16,Sin preferencia
+55,IS-912,Sistemas Expertos,7.0,9.434272229671478,10,Sin preferencia
+56,IS-913,Diseño de Compiladores,1.0,6.181024760007858,7,Sin preferencia
+57,IS-914,Liderazgo para el Cambio,5.0,2.8685444593429565,3,Sin preferencia
+116,IS-115,Seminario de Investigación,20.0,7.0,7,Sin preferencia
+117,ISC-101,Introducción a la Ingeniería en Sistemas Computacionales,12.0,,16,Sin preferencia
