@@ -446,9 +446,18 @@ def vista_jefe_departamento():
     # ==========================================
     # TAB IA: GENERAR HORARIOS Y MATRIZ CONDENSADA
     # ==========================================
+   # ==========================================
+    # TAB IA: GENERAR HORARIOS Y MATRIZ CONDENSADA
+    # ==========================================
     with tab_ia:
         st.markdown("### 🧠 Motor de Inteligencia Artificial")
         st.write("Ejecuta el cruce de variables complejas (Censo, Prerrequisitos, Aulas y Disponibilidad Docente) para generar la planificación óptima.")
+        
+        # --- 1. INICIALIZAR MEMORIA PERSISTENTE ---
+        if 'ia_exito' not in st.session_state:
+            st.session_state['ia_exito'] = False
+        if 'ia_alertas' not in st.session_state:
+            st.session_state['ia_alertas'] = []
         
         from sqlalchemy import create_engine, text
         user = "Joasro"
@@ -471,11 +480,23 @@ def vista_jefe_departamento():
                     exito, alertas = ejecutar_optimizador(engine_ia)
                     
                 if exito:
-                    st.success("✅ ¡Matriz Generada y Guardada en Base de Datos Temporal!")
-                    if alertas:
-                        for alerta in alertas: st.warning(f"🚨 {alerta}")
+                    # --- 2. GUARDAR EN MEMORIA Y RECARGAR ---
+                    st.session_state['ia_exito'] = True
+                    st.session_state['ia_alertas'] = alertas
+                    st.rerun() # Esto fuerza la recarga para mostrar las alertas de inmediato
                 else:
                     st.error(f"❌ Error en el motor: {alertas[0]}")
+                    
+        # --- 3. MOSTRAR LAS ALERTAS FUERA DEL BOTÓN (NO DESAPARECERÁN) ---
+        if st.session_state.get('ia_exito', False):
+            st.success("✅ ¡Matriz Generada y Guardada en Base de Datos Temporal!")
+            
+            if st.session_state.get('ia_alertas'):
+                # Las ponemos en un expander para que se vea elegante y profesional
+                with st.expander("🚨 Alertas Logísticas: Análisis de Brechas (Gap Analysis)", expanded=True):
+                    st.markdown("**El sistema detectó que la demanda superó la capacidad física de la infraestructura:**")
+                    for alerta in st.session_state['ia_alertas']:
+                        st.warning(alerta)
                     
         st.divider()
         st.markdown("### 📊 Propuesta Condensada de la IA")
@@ -489,6 +510,8 @@ def vista_jefe_departamento():
             JOIN espacios_fisicos e ON o.ID_Espacio = e.ID_Espacio
             JOIN docentes_activos d ON o.ID_Docente = d.ID_Docente
         """
+        # [A partir de aquí, el resto de tu código de tabla e interactividad queda exactamente igual...]
+        
         try:
             df_oferta = pd.read_sql(query_matriz, engine_ia)
         except:
