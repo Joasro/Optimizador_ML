@@ -79,11 +79,8 @@ def vista_jefe_departamento():
     st.markdown("<p style='font-size: 1.1rem; color: gray;'>Gestión integral del departamento de Ingeniería en Sistemas, inteligencia artificial y logística académica.</p>", unsafe_allow_html=True)
     st.write("")
 
-    # --- TABS ELEGANTES ---
-    tab1, tab2, tab_edit, tab_ia, tab4, tab5, tab6, tab_historial_clases = st.tabs([
-        "👥 Registrar Estudiante",
-        "📚 Matricular Clases",
-        "✏️ Editar Historial",
+ 
+    tab_ia, tab4, tab5, tab6, tab_historial_clases = st.tabs([
         "📅 Generar Horarios (IA)",
         "📊 Estadísticas",
         "👨‍🏫 Gestión Docente",
@@ -106,7 +103,7 @@ def vista_jefe_departamento():
     # ==========================================
     # TAB 1: CREAR ESTUDIANTE
     # ==========================================
-    with tab1:
+    if False: # Módulo oculto. Antes era: with tab1:
         st.markdown("### 📝 Creación de Nuevo Expediente")
         
         with st.container(border=True):
@@ -246,7 +243,7 @@ def vista_jefe_departamento():
     # ==========================================
     # TAB 2: MATRICULAR CLASES (ACTUALIZAR)
     # ==========================================
-    with tab2:
+    if False: # Módulo oculto. Antes era: with tab2:
         st.markdown("### 📚 Matricular Nuevo Periodo")
         
         conn = get_connection()
@@ -366,7 +363,7 @@ def vista_jefe_departamento():
     # ==========================================
     # TAB 3: EDITAR HISTORIAL (EDICIÓN RÁPIDA)
     # ==========================================
-    with tab_edit:
+    if False: # Módulo oculto. Antes era: with tab_edit:
         st.markdown("### ✏️ Editor Masivo de Expediente")
         conn = get_connection()
         est_df_edit = pd.read_sql("""
@@ -584,43 +581,101 @@ def vista_jefe_departamento():
             st.markdown(css_tabla + html_limpio, unsafe_allow_html=True)
             st.divider()
             
-            st.markdown("### 🛠️ Ajuste Manual de Secciones")
-            opciones_sec = {f"{row['Codigo_Oficial']} - {row['Nombre_Clase']} ({row['Hora_Inicio_Limpia']} en {row['Aula']})": row['ID_Seccion'] for _, row in df_oferta.iterrows()}
-            
-            with st.container(border=True):
-                sec_seleccionada = st.selectbox("🔍 Buscar Sección a Editar/Eliminar:", ["Seleccione..."] + list(opciones_sec.keys()))
-                if sec_seleccionada != "Seleccione...":
-                    id_sec_edit = opciones_sec[sec_seleccionada]
-                    sec_actual = df_oferta[df_oferta['ID_Seccion'] == id_sec_edit].iloc[0]
-                    
-                    df_docs = pd.read_sql("SELECT ID_Docente, Nombre FROM docentes_activos", engine_ia)
-                    dict_docs = dict(zip(df_docs['Nombre'], df_docs['ID_Docente']))
-                    df_esp = pd.read_sql("SELECT ID_Espacio, Nombre_Espacio FROM espacios_fisicos", engine_ia)
-                    dict_esp = dict(zip(df_esp['Nombre_Espacio'], df_esp['ID_Espacio']))
-                    
-                    col_e1, col_e2 = st.columns(2)
-                    with col_e1:
-                        idx_doc = list(dict_docs.values()).index(sec_actual['ID_Docente']) if sec_actual['ID_Docente'] in dict_docs.values() else 0
-                        nuevo_doc = st.selectbox("👨‍🏫 Reasignar Docente", list(dict_docs.keys()), index=idx_doc)
-                        idx_esp = list(dict_esp.values()).index(sec_actual['ID_Espacio']) if sec_actual['ID_Espacio'] in dict_esp.values() else 0
-                        nueva_aula = st.selectbox("🏫 Reasignar Aula", list(dict_esp.keys()), index=idx_esp)
-                        
-                    with col_e2:
-                        st.write(" ")
-                        st.write(" ")
-                        if st.button("💾 Guardar Ajuste Fino", use_container_width=True):
-                            with engine_ia.begin() as con:
-                                con.execute(text("UPDATE oferta_academica_generada SET ID_Docente = :d, ID_Espacio = :e WHERE ID_Seccion = :s"), 
-                                            {"d": dict_docs[nuevo_doc], "e": dict_esp[nueva_aula], "s": id_sec_edit})
-                            st.success("¡Sección modificada con éxito!")
-                            st.rerun()
-                        if st.button("🗑️ Eliminar Sección", type="primary", use_container_width=True):
-                            with engine_ia.begin() as con:
-                                con.execute(text("DELETE FROM oferta_academica_generada WHERE ID_Seccion = :s"), {"s": id_sec_edit})
-                            st.warning("Sección eliminada del periodo.")
-                            st.rerun()
-            
             st.divider()
+            st.markdown("### 🛠️ Ajuste Manual de Secciones")
+            st.markdown("<p style='color: gray; font-size: 15px;'>Modifica o elimina secciones generadas por la IA. Selecciona una sección para habilitar el panel de edición detallada.</p>", unsafe_allow_html=True)
+            
+            # 1. Selector de Sección a Editar
+            opciones_sec = {f"{row['Codigo_Oficial']} - {row['Nombre_Clase']} ({row['Hora_Inicio_Limpia']} en {row['Aula']})": row['ID_Seccion'] for _, row in df_oferta.iterrows()}
+            sec_seleccionada = st.selectbox("🔍 Buscar Sección en el periodo actual:", ["Seleccione..."] + list(opciones_sec.keys()))
+            
+            if sec_seleccionada != "Seleccione...":
+                id_sec_edit = opciones_sec[sec_seleccionada]
+                sec_actual = df_oferta[df_oferta['ID_Seccion'] == id_sec_edit].iloc[0]
+                
+                # Cargar catálogos
+                df_docs = pd.read_sql("SELECT ID_Docente, Nombre FROM docentes_activos", engine_ia)
+                dict_docs = dict(zip(df_docs['Nombre'], df_docs['ID_Docente']))
+                df_esp = pd.read_sql("SELECT ID_Espacio, Nombre_Espacio FROM espacios_fisicos", engine_ia)
+                dict_esp = dict(zip(df_esp['Nombre_Espacio'], df_esp['ID_Espacio']))
+                
+                # Función para limpiar y convertir la hora SQL a un objeto datetime.time compatible con Streamlit
+                import datetime
+                def parse_time_for_ui(time_obj):
+                    if pd.isna(time_obj): return datetime.time(7, 0)
+                    t_str = str(time_obj).split('days ')[-1].strip() if 'days' in str(time_obj) else str(time_obj).strip()
+                    try:
+                        parts = t_str.split(':')
+                        return datetime.time(int(parts[0]), int(parts[1]))
+                    except:
+                        return datetime.time(7, 0)
+
+                hora_i_actual = parse_time_for_ui(sec_actual['Hora_Inicio'])
+                hora_f_actual = parse_time_for_ui(sec_actual['Hora_Fin'])
+                
+                # 2. PANEL DE EDICIÓN AVANZADO (Tarjeta Visual)
+                with st.container(border=True):
+                    # Cabecera de la tarjeta
+                    st.markdown(f"#### 📝 Editando: <span style='color:#004085;'>{sec_actual['Codigo_Oficial']} - {sec_actual['Nombre_Clase']}</span>", unsafe_allow_html=True)
+                    st.caption(f"**ID de Sección:** {id_sec_edit} | **Capacidad:** {sec_actual['Cupos_Maximos']} estudiantes")
+                    st.write("")
+                    
+                    # División en dos columnas lógicas
+                    col_edit1, col_edit2 = st.columns(2)
+                    
+                    with col_edit1:
+                        st.markdown("**1. Recursos Físicos y Humanos**")
+                        idx_doc = list(dict_docs.values()).index(sec_actual['ID_Docente']) if sec_actual['ID_Docente'] in dict_docs.values() else 0
+                        nuevo_doc = st.selectbox("👨‍🏫 Ingeniero / Docente", list(dict_docs.keys()), index=idx_doc)
+                        
+                        idx_esp = list(dict_esp.values()).index(sec_actual['ID_Espacio']) if sec_actual['ID_Espacio'] in dict_esp.values() else 0
+                        nueva_aula = st.selectbox("🏫 Aula / Laboratorio", list(dict_esp.keys()), index=idx_esp)
+                        
+                    with col_edit2:
+                        st.markdown("**2. Programación Horaria**")
+                        nuevo_dia = st.text_input("📅 Días de clase", value=sec_actual['Dias'])
+                        
+                        c_h1, c_h2 = st.columns(2)
+                        nueva_hora_ini = c_h1.time_input("⏰ Hora Inicio", value=hora_i_actual, step=datetime.timedelta(minutes=30))
+                        nueva_hora_fin = c_h2.time_input("⌛ Hora Fin", value=hora_f_actual, step=datetime.timedelta(minutes=30))
+                        
+                    st.write("")
+                    st.divider()
+                    
+                    # 3. BOTONES DE ACCIÓN (Con UX mejorada)
+                    col_btn1, col_btn2 = st.columns([1.5, 1])
+                    
+                    with col_btn1:
+                        if st.button("💾 Guardar Ajustes en esta Sección", type="primary", use_container_width=True):
+                            with engine_ia.begin() as con:
+                                con.execute(text("""
+                                    UPDATE oferta_academica_generada 
+                                    SET ID_Docente = :d, 
+                                        ID_Espacio = :e,
+                                        Dias = :dias,
+                                        Hora_Inicio = :hi,
+                                        Hora_Fin = :hf
+                                    WHERE ID_Seccion = :s
+                                """), {
+                                    "d": dict_docs[nuevo_doc], 
+                                    "e": dict_esp[nueva_aula], 
+                                    "dias": nuevo_dia,
+                                    "hi": nueva_hora_ini.strftime('%H:%M:%S'),
+                                    "hf": nueva_hora_fin.strftime('%H:%M:%S'),
+                                    "s": id_sec_edit
+                                })
+                            st.success("✅ ¡Sección modificada y optimizada con éxito!")
+                            st.rerun()
+                            
+                    with col_btn2:
+                        # Expander de seguridad para eliminar (Previene desastres operativos)
+                        with st.expander("⚠️ Eliminar", expanded=False):
+                            st.markdown("¿Borrar sección del periodo?")
+                            if st.button("🗑️ Confirmar", type="primary", use_container_width=True):
+                                with engine_ia.begin() as con:
+                                    con.execute(text("DELETE FROM oferta_academica_generada WHERE ID_Seccion = :s"), {"s": id_sec_edit})
+                                st.warning("🚨 Sección eliminada.")
+                                st.rerun()
             with st.container(border=True):
                 st.markdown("<h3 style='text-align: center;'>Publicación Oficial</h3>", unsafe_allow_html=True)
                 if st.button("✅ APROBAR Y PUBLICAR HORARIO", type="primary", use_container_width=True):
@@ -855,28 +910,113 @@ def vista_jefe_departamento():
 # ==========================================
 # MAIN APP ROUTING
 # ==========================================
+
+# ==========================================
+# 🎨 ESTILOS VISUALES PARA EL LOGIN (UNAH)
+# ==========================================
+# ==========================================
+# 🎨 ESTILOS VISUALES PARA EL LOGIN (UNAH)
+# ==========================================
+def apply_login_styles():
+    st.markdown(
+        """
+        <style>
+        /* Contenedor central del login (AHORA TRANSPARENTE Y LIMPIO) */
+        .login-container {
+            background-color: transparent; 
+            padding: 10px 0px;
+            text-align: center;
+            margin-bottom: 5px;
+        }
+
+        /* Estilo para los títulos */
+        .login-title {
+            color: #003366; /* Azul Institucional UNAH */
+            font-weight: 900;
+            font-size: 32px;
+            margin-bottom: 0px;
+            padding-bottom: 0px;
+        }
+        
+        .login-subtitle {
+            color: #555555;
+            font-size: 16px;
+            font-weight: 500;
+            margin-top: 5px;
+            margin-bottom: 15px;
+        }
+
+        /* Estilo para el botón de Ingresar */
+        div.stButton > button:first-child {
+            background-color: #F9D003; /* Oro UNAH */
+            color: #003366; 
+            font-weight: 700;
+            font-size: 16px;
+            border: none;
+            border-radius: 8px;
+            transition: all 0.3s ease;
+            margin-top: 10px;
+        }
+        
+        div.stButton > button:first-child:hover {
+            background-color: #e5be02; 
+            color: #003366;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 10px rgba(249, 208, 3, 0.4);
+        }
+        </style>
+        """,
+        unsafe_allow_html=True
+    )
+
 def main():
     inicializar_sesion()
-    
+
     if not st.session_state['logged_in']:
-        st.title("Acceso al Optimizador Académico - UNAH")
-        with st.container():
-            col1, col2, col3 = st.columns([1, 2, 1])
-            with col2:
-                with st.form("login_form"):
-                    u = st.text_input("Correo Institucional")
-                    p = st.text_input("Contraseña", type="password")
-                    if st.form_submit_button("Ingresar", use_container_width=True):
-                        conn = get_connection()
-                        cursor = conn.cursor(dictionary=True)
-                        cursor.execute("SELECT * FROM Usuarios WHERE Correo_Institucional = %s AND Contrasena = %s", (u, hash_data(p)))
-                        res = cursor.fetchone()
-                        if res:
-                            st.session_state.update({'logged_in': True, 'user_role': res['Rol'], 'user_name': res['Nombre_Completo'], 'user_hash': res['Hash_Cuenta']})
-                            st.rerun()
-                        else:
-                            st.error("Credenciales incorrectas.")
-                        conn.close()
+        # Aplicamos los estilos UNAH
+        apply_login_styles()
+        
+        # Centramos el formulario
+        st.write("")
+        st.write("")
+        col1, col2, col3 = st.columns([1, 1.5, 1])
+        
+        with col2:
+            # Tarjeta de Título
+            st.markdown(
+                """
+                <div class="login-container">
+                    <h1 class="login-title">Sistema de Soporte a Decisiones</h1>
+                    <p class="login-subtitle">Universidad Nacional Autónoma de Honduras</p>
+                </div>
+                """, 
+                unsafe_allow_html=True
+            )
+            
+            # Formulario
+            with st.form("login_form"):
+                u = st.text_input("✉️ Correo Institucional", placeholder="ejemplo@unah.hn")
+                p = st.text_input("🔒 Contraseña", type="password", placeholder="••••••••")
+                
+                st.write("") # Espaciado
+                
+                if st.form_submit_button("Ingresar al Sistema", use_container_width=True):
+                    # Tu lógica de backend original intocable
+                    conn = get_connection()
+                    cursor = conn.cursor(dictionary=True)
+                    cursor.execute("SELECT * FROM Usuarios WHERE Correo_Institucional = %s AND Contrasena = %s", (u, hash_data(p)))
+                    res = cursor.fetchone()
+                    if res:
+                        st.session_state.update({
+                            'logged_in': True, 
+                            'user_role': res['Rol'], 
+                            'user_name': res['Nombre_Completo'], 
+                            'user_hash': res['Hash_Cuenta']
+                        })
+                        st.rerun()
+                    else:
+                        st.error("❌ Credenciales incorrectas. Verifique su correo o contraseña.")
+                    conn.close()
     else:
         if st.session_state['user_role'] == 'Admin':
             vista_jefe_departamento()
