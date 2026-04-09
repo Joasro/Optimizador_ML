@@ -1,0 +1,10 @@
+# Ignorar archivos y carpetas específicas para Git
+*.png
+crear_admin.py
+crear_docentes_usuarios.py
+generar_graficos_avanzados.py
+grafico_ano.py
+limpiar_malla.py
+plan_estudio.py
+venv/
+.env
