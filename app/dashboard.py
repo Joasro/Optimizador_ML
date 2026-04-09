@@ -1,20 +1,20 @@
 import sys
 import os
-import streamlit.components.v1 as components
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-from app.student_portal import vista_estudiante
-from app.teacher_portal import vista_docente
+import streamlit.components.v1 as components
 import datetime
 import streamlit as st
 import hashlib
 import pandas as pd
 from config.db_connection import get_connection
+from app.student_portal import vista_estudiante
+from app.teacher_portal import vista_docente
 
 st.set_page_config(page_title="Optimizador Académico UNAH", layout="wide", page_icon="🎓")
 
-# ==========================================
-# 1. FUNCIONES AUXILIARES
-# ==========================================
+# ----------------------
+# Funciones varias
+# ----------------------
 def hash_data(data):
     return hashlib.sha256(str(data).encode()).hexdigest()
 
@@ -42,9 +42,9 @@ def evaluar_prerrequisitos(req_text, ids_aprobados, total_uv, mapa_codes):
             return False
     return True
 
-# ==========================================
-# 2. SISTEMA DE LOGIN Y SESIÓN
-# ==========================================
+# ----------------------
+# Login y sesión
+# ----------------------
 def inicializar_sesion():
     if 'logged_in' not in st.session_state:
         st.session_state['logged_in'] = False
@@ -58,13 +58,13 @@ def cerrar_sesion():
     st.rerun()
 
 # ==========================================
-# 3. VISTA: JEFE DE DEPARTAMENTO (ADMIN)
-# ==========================================
+# Vista principal admin
+# ----------------------
 def vista_jefe_departamento():
     from sqlalchemy import create_engine
     import app.gestion_docentes as gd 
     
-    # --- SIDEBAR PROFESIONAL ---
+    # Sidebar
     with st.sidebar:
         st.image("https://cdn-icons-png.flaticon.com/512/2942/2942813.png", width=100)
         st.title(f"👨‍💻 Jefatura")
@@ -74,7 +74,7 @@ def vista_jefe_departamento():
         if st.button("🚪 Cerrar Sesión", use_container_width=True, type="secondary"):
             cerrar_sesion()
 
-    # --- ENCABEZADO ---
+    # Encabezado
     st.markdown("# 🛡️ Panel de Control Principal")
     st.markdown("<p style='font-size: 1.1rem; color: gray;'>Gestión integral del departamento de Ingeniería en Sistemas, inteligencia artificial y logística académica.</p>", unsafe_allow_html=True)
     st.write("")
@@ -100,9 +100,7 @@ def vista_jefe_departamento():
         'ISC-414': ['IS-710'], 'ISC-336': ['IS-711'], 'ISC-437': ['IS-603']
     }
 
-    # ==========================================
-    # TAB 1: CREAR ESTUDIANTE
-    # ==========================================
+    # Tab 1: Crear estudiante
     if False: # Módulo oculto. Antes era: with tab1:
         st.markdown("### 📝 Creación de Nuevo Expediente")
         
@@ -165,7 +163,7 @@ def vista_jefe_departamento():
                     if cumple_prerrequisitos_ui(row['Prerrequisitos'], aprobadas_actuales, uv_acumuladas):
                         clases_desbloqueadas.append(row.to_dict())
             
-            # 🎨 Métricas visuales
+            # Métricas
             c_met1, c_met2 = st.columns(2)
             c_met1.metric("✔️ Clases Aprobadas en Carrito", len(aprobadas_actuales))
             c_met2.metric("💎 UV Proyectadas", uv_acumuladas)
@@ -240,9 +238,7 @@ def vista_jefe_departamento():
                 finally:
                     conn.close()
 
-    # ==========================================
-    # TAB 2: MATRICULAR CLASES (ACTUALIZAR)
-    # ==========================================
+    # Tab 2: Matricular clases
     if False: # Módulo oculto. Antes era: with tab2:
         st.markdown("### 📚 Matricular Nuevo Periodo")
         
@@ -278,7 +274,7 @@ def vista_jefe_departamento():
             aprobadas_set = set(historial_df[historial_df['Estado'] == 'Aprobado']['Codigo_Oficial'].tolist())
             uv_acumuladas = historial_df[historial_df['Estado'] == 'Aprobado']['Unidades_Valorativas'].fillna(0).astype(int).sum()
             
-            # 🎨 Métricas visuales
+            # Métricas
             c_info1, c_info2, c_info3 = st.columns(3)
             c_info1.metric("📖 Plan Vigente", estudiante_plan)
             c_info2.metric("✔️ Clases Aprobadas", len(aprobadas_set))
@@ -360,9 +356,7 @@ def vista_jefe_departamento():
             else:
                 st.info("El historial de este estudiante está vacío.")
 
-    # ==========================================
-    # TAB 3: EDITAR HISTORIAL (EDICIÓN RÁPIDA)
-    # ==========================================
+    # Tab 3: Editar historial
     if False: # Módulo oculto. Antes era: with tab_edit:
         st.markdown("### ✏️ Editor Masivo de Expediente")
         conn = get_connection()
@@ -380,7 +374,7 @@ def vista_jefe_departamento():
             num_cuenta = correo.split('@')[0].replace('estudiante', '') if 'estudiante' in correo else 'No definido'
             
             st.write("")
-            # 🎨 Perfil Visual
+            # Perfil
             with st.container(border=True):
                 st.markdown(f"#### 👤 {info_edit['Nombre_Completo']}")
                 c1, c2, c3, c4 = st.columns(4)
@@ -408,7 +402,7 @@ def vista_jefe_departamento():
                 except:
                     periodos_ordenados = periodos_unicos
                 
-                st.markdown("#### 📖 Edición por Periodos (Cronológico)")
+                st.markdown("#### 📖 Edición por Periodos")
                 hubo_cambios = False
                 for periodo in periodos_ordenados:
                     with st.expander(f"📅 Periodo: {periodo}", expanded=True):
@@ -440,17 +434,12 @@ def vista_jefe_departamento():
                     st.rerun()
         conn.close()
 
-    # ==========================================
-    # TAB IA: GENERAR HORARIOS Y MATRIZ CONDENSADA
-    # ==========================================
-   # ==========================================
-    # TAB IA: GENERAR HORARIOS Y MATRIZ CONDENSADA
-    # ==========================================
+    # Tab IA: Generar horarios y matriz
     with tab_ia:
-        st.markdown("### 🧠 Motor de Inteligencia Artificial")
-        st.write("Ejecuta el cruce de variables complejas (Censo, Prerrequisitos, Aulas y Disponibilidad Docente) para generar la planificación óptima.")
+        st.markdown("### Motor de horarios")
+        st.write("Genera la planificación.")
         
-        # --- 1. INICIALIZAR MEMORIA PERSISTENTE ---
+        # Inicializar memoria
         if 'ia_exito' not in st.session_state:
             st.session_state['ia_exito'] = False
         if 'ia_alertas' not in st.session_state:
@@ -477,19 +466,19 @@ def vista_jefe_departamento():
                     exito, alertas = ejecutar_optimizador(engine_ia)
                     
                 if exito:
-                    # --- 2. GUARDAR EN MEMORIA Y RECARGAR ---
+                    # Guardar y recargar
                     st.session_state['ia_exito'] = True
                     st.session_state['ia_alertas'] = alertas
                     st.rerun() # Esto fuerza la recarga para mostrar las alertas de inmediato
                 else:
                     st.error(f"❌ Error en el motor: {alertas[0]}")
                     
-        # --- 3. MOSTRAR LAS ALERTAS FUERA DEL BOTÓN (NO DESAPARECERÁN) ---
+        # Mostrar alertas
         if st.session_state.get('ia_exito', False):
             st.success("✅ ¡Matriz Generada y Guardada en Base de Datos Temporal!")
             
             if st.session_state.get('ia_alertas'):
-                # Las ponemos en un expander para que se vea elegante y profesional
+                # Mostrar alertas en expander
                 with st.expander("🚨 Alertas Logísticas: Análisis de Brechas (Gap Analysis)", expanded=True):
                     st.markdown("**El sistema detectó que la demanda superó la capacidad física de la infraestructura:**")
                     for alerta in st.session_state['ia_alertas']:
@@ -507,7 +496,7 @@ def vista_jefe_departamento():
             JOIN espacios_fisicos e ON o.ID_Espacio = e.ID_Espacio
             JOIN docentes_activos d ON o.ID_Docente = d.ID_Docente
         """
-        # [A partir de aquí, el resto de tu código de tabla e interactividad queda exactamente igual...]
+        # Mostrar tabla
         
         try:
             df_oferta = pd.read_sql(query_matriz, engine_ia)
@@ -600,7 +589,6 @@ def vista_jefe_departamento():
                 dict_esp = dict(zip(df_esp['Nombre_Espacio'], df_esp['ID_Espacio']))
                 
                 # Función para limpiar y convertir la hora SQL a un objeto datetime.time compatible con Streamlit
-                import datetime
                 def parse_time_for_ui(time_obj):
                     if pd.isna(time_obj): return datetime.time(7, 0)
                     t_str = str(time_obj).split('days ')[-1].strip() if 'days' in str(time_obj) else str(time_obj).strip()
@@ -686,9 +674,7 @@ def vista_jefe_departamento():
         else:
             st.info("Aún no se ha generado la matriz. Haz clic en 'Iniciar Optimización Logística'.")
 
-    # ==========================================
-    # TAB 4: ESTADÍSTICAS
-    # ==========================================
+    # Tab 4: Estadísticas
     with tab4:
         st.markdown("### 📊 Inteligencia Demográfica")
         conn = get_connection()
@@ -712,17 +698,13 @@ def vista_jefe_departamento():
         finally:
             conn.close()
 
-    # ==========================================
-    # TAB 5: GESTIÓN DOCENTE
-    # ==========================================
+    # Tab 5: Gestión docente
     with tab5:
         user = "Joasro"; password = "Akriila123."; host = "localhost"; db = "dss_academico_unah"
         engine_admin = create_engine(f"mysql+mysqlconnector://{user}:{password}@{host}/{db}")
         gd.mostrar_gestion_docentes(engine_admin)
 
-    # ==========================================
-    # TAB 6: CENSO EN VIVO
-    # ==========================================
+    # Tab 6: Censo en vivo
     with tab6:
         st.markdown("### 📡 Radar de Demanda (Tiempo Real)")
         st.write("Analiza las intenciones de matrícula de los estudiantes agrupadas por asignatura. Los estudiantes por egresar están marcados en amarillo para prioridad logística.")
@@ -796,12 +778,10 @@ def vista_jefe_departamento():
         finally:
             conn.close()   
 
-    # ==========================================
-    # TAB 7: HISTORIAL DE CLASES PARA LA IA
-    # ==========================================
+    # Tab 7: Historial de clases
     with tab_historial_clases:
-        st.markdown("### 📜 Alimentar Base de Conocimiento de la IA")
-        st.write("Enséñale a la Inteligencia Artificial los patrones del pasado registrando cómo se impartieron las asignaturas en periodos anteriores.")
+        st.markdown("### Base de conocimiento")
+        st.write("Registra cómo se impartieron las asignaturas antes.")
 
         conn = get_connection()
         try:
@@ -849,7 +829,7 @@ def vista_jefe_departamento():
 
             st.divider()
             
-            # --- CORRECCIÓN DEL BUG DE DUPLICACIÓN DE LA TABLA ---
+            # Corrección de duplicados
             st.markdown("### 📋 Conocimiento Histórico Consolidado")
             
             df_historial_conocimiento = pd.read_sql("""
@@ -863,7 +843,95 @@ def vista_jefe_departamento():
             """, conn)
             
             if not df_historial_conocimiento.empty:
-                st.dataframe(df_historial_conocimiento, use_container_width=True, hide_index=True)
+                
+                # --- 🛠️ CORRECCIÓN DE FORMATO DE HORA (NANO-SEGUNDOS Y TIMEDELTAS) ---
+                # --- 🛠️ CORRECCIÓN DEFINITIVA DE FORMATO DE HORA ---
+                def limpiar_hora_historial(val):
+                    import re
+                    import datetime
+                    
+                    if pd.isna(val) or val == "": 
+                        return "N/A"
+                    
+                    # 1. Si es un objeto de tiempo nativo de Python/Pandas
+                    if isinstance(val, (pd.Timedelta, datetime.timedelta)):
+                        segundos = val.total_seconds()
+                        h = int(segundos // 3600)
+                        m = int((segundos % 3600) // 60)
+                        ampm = "AM" if h < 12 else "PM"
+                        h12 = h if h <= 12 else h - 12
+                        if h12 == 0: h12 = 12
+                        return f"{h12:02d}:{m:02d} {ampm}"
+                    
+                    val_str = str(val).strip()
+                    
+                    # 2. Extractor de Regex (Captura directamente "08:00" ignorando el "0 days")
+                    match = re.search(r'(\d+):(\d+)', val_str)
+                    if match:
+                        h = int(match.group(1))
+                        m = int(match.group(2))
+                        ampm = "AM" if h < 12 else "PM"
+                        h12 = h if h <= 12 else h - 12
+                        if h12 == 0: h12 = 12
+                        return f"{h12:02d}:{m:02d} {ampm}"
+                        
+                    # 3. Si viene como nanosegundos (ej. 46800000000000)
+                    try:
+                        ns = float(val_str)
+                        if ns > 1000000:
+                            segundos = ns / 1e9
+                            h = int(segundos // 3600)
+                            m = int((segundos % 3600) // 60)
+                            ampm = "AM" if h < 12 else "PM"
+                            h12 = h if h <= 12 else h - 12
+                            if h12 == 0: h12 = 12
+                            return f"{h12:02d}:{m:02d} {ampm}"
+                    except ValueError:
+                        pass
+                        
+                    # 4. Si dice "8 hours"
+                    if 'hour' in val_str.lower():
+                        nums = re.findall(r'\d+', val_str)
+                        if nums:
+                            h = int(nums[0])
+                            ampm = "AM" if h < 12 else "PM"
+                            h12 = h if h <= 12 else h - 12
+                            if h12 == 0: h12 = 12
+                            return f"{h12:02d}:00 {ampm}"
+                            
+                    return val_str[:5]
+
+                # Aplicamos la limpieza a las horas
+                df_historial_conocimiento['Hora_Inicio'] = df_historial_conocimiento['Hora_Inicio'].apply(limpiar_hora_historial)
+                df_historial_conocimiento['Hora_Fin'] = df_historial_conocimiento['Hora_Fin'].apply(limpiar_hora_historial)
+
+                # ==========================================
+                # AGRUPACIÓN VISUAL POR PERIODO ACADÉMICO
+                # ==========================================
+                periodos_unicos = df_historial_conocimiento['Periodo_Academico'].unique()
+                
+                for per in periodos_unicos:
+                    # Filtramos los datos para este periodo específico
+                    df_per = df_historial_conocimiento[df_historial_conocimiento['Periodo_Academico'] == per]
+                    
+                    # Creamos un acordeón (expander) por cada periodo
+                    with st.expander(f"📅 Periodo Académico: {per} — ({len(df_per)} secciones registradas)", expanded=True):
+                        # Mostramos la tabla ocultando la columna de Periodo para no ser redundantes
+                        st.dataframe(
+                            df_per.drop(columns=['Periodo_Academico']), 
+                            use_container_width=True, 
+                            hide_index=True,
+                            column_config={
+                                "ID_Historial": st.column_config.NumberColumn("ID", width="small"),
+                                "Codigo_Oficial": st.column_config.TextColumn("Código", width="small"),
+                                "Docente": st.column_config.TextColumn("👨‍🏫 Docente", width="large"),
+                                "Aula": st.column_config.TextColumn("🏫 Aula", width="medium"),
+                                "Hora_Inicio": st.column_config.TextColumn("⏰ Inicio", width="small"),
+                                "Hora_Fin": st.column_config.TextColumn("⌛ Fin", width="small")
+                            }
+                        )
+                
+                st.write("") # Espaciado
                 
                 with st.container(border=True):
                     st.markdown("#### ✏️ Edición Fina de Registros")
@@ -907,16 +975,13 @@ def vista_jefe_departamento():
         finally:
             conn.close()
 
-# ==========================================
-# MAIN APP ROUTING
-# ==========================================
+# ----------------------
+# Main app routing
+# ----------------------
 
-# ==========================================
-# 🎨 ESTILOS VISUALES PARA EL LOGIN (UNAH)
-# ==========================================
-# ==========================================
-# 🎨 ESTILOS VISUALES PARA EL LOGIN (UNAH)
-# ==========================================
+# ----------------------
+# Estilos visuales login
+# ----------------------
 def apply_login_styles():
     st.markdown(
         """
