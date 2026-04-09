@@ -1,10 +1,13 @@
-# Ignorar archivos y carpetas específicas para Git
+# Ignorar imágenes generadas
 *.png
+
+# Ignorar scripts auxiliares y de creación
 crear_admin.py
 crear_docentes_usuarios.py
-generar_graficos_avanzados.py
+generar_graficos_avanzados.py.py
 grafico_ano.py
 limpiar_malla.py
 plan_estudio.py
-venv/
+
+# Ignorar variables de entorno
 .env
